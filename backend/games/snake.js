@@ -1,6 +1,6 @@
 const COLS = 40;
 const ROWS = 40;
-const TICK_MS = 100;
+const TICK_MS = 150;
 
 const PLAYER_COLORS = [
   "#4ade80", "#60a5fa", "#f472b6", "#fb923c",

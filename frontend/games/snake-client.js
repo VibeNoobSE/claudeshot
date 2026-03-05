@@ -83,6 +83,18 @@ function initSnakeClient(socket, myId, room) {
   // Receive game state
   socket.on("snake-state", (state) => {
     _latestState = state;
+
+    // Sync _lastDir from actual server state so input blocking is always accurate
+    const me = state.snakes.find(s => s.id === _myId);
+    if (me && me.alive && me.body.length >= 2) {
+      const dx = me.body[0].x - me.body[1].x;
+      const dy = me.body[0].y - me.body[1].y;
+      if      (dx ===  1) _lastDir = "RIGHT";
+      else if (dx === -1) _lastDir = "LEFT";
+      else if (dy ===  1) _lastDir = "DOWN";
+      else if (dy === -1) _lastDir = "UP";
+    }
+
     drawState(state);
     updateStatus(state);
   });
