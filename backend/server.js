@@ -4,6 +4,7 @@ const path = require("path");
 const { Server } = require("socket.io");
 const cors = require("cors");
 const { createRoom, joinRoom, rejoinRoom, leaveRoom, getRooms } = require("./roomManager");
+const SnakeGame = require("./games/snake");
 
 const app = express();
 const server = http.createServer(app);
@@ -22,6 +23,9 @@ app.use(express.static(path.join(__dirname, "../frontend")));
 app.get("/", (req, res) => {
   res.sendFile(path.join(__dirname, "../frontend/index.html"));
 });
+
+// Active snake games keyed by room code
+const activeGames = {};
 
 io.on("connection", (socket) => {
   console.log("Player connected:", socket.id);
@@ -62,11 +66,25 @@ io.on("connection", (socket) => {
       socket.emit("error", "Missing room code or name.");
       return;
     }
-    const result = rejoinRoom(code.toUpperCase(), socket.id, name.trim());
+    const upperCode = code.toUpperCase();
+
+    // Find old socket id before rejoin updates it
+    const rooms = getRooms();
+    const room = rooms.get(upperCode);
+    const oldPlayer = room && room.players.find(p => p.name === name.trim());
+    const oldId = oldPlayer ? oldPlayer.id : null;
+
+    const result = rejoinRoom(upperCode, socket.id, name.trim());
     if (result.error) {
       socket.emit("kicked");
       return;
     }
+
+    // Update snake game if active
+    if (oldId && oldId !== socket.id && activeGames[upperCode]) {
+      activeGames[upperCode].updatePlayerId(oldId, socket.id);
+    }
+
     socket.join(result.code);
     socket.emit("room-joined", result);
     io.to(result.code).emit("room-updated", result);
@@ -77,16 +95,37 @@ io.on("connection", (socket) => {
     for (const [, r] of getRooms()) {
       if (r.host === socket.id) {
         r.gameStarted = true;
-        io.to(r.code).emit("game-started");
-        console.log(`Game started in room ${r.code}`);
+        io.to(r.code).emit("game-started", { game: "snake" });
+
+        const game = new SnakeGame(r, io, (scores) => {
+          delete activeGames[r.code];
+          r.gameStarted = false;
+          io.to(r.code).emit("game-ended", { scores });
+        });
+        activeGames[r.code] = game;
+        game.start();
+
+        console.log(`Snake game started in room ${r.code}`);
         return;
       }
+    }
+  });
+
+  socket.on("snake-input", ({ dir }) => {
+    const validDirs = ["UP", "DOWN", "LEFT", "RIGHT"];
+    if (!validDirs.includes(dir)) return;
+    for (const [code, game] of Object.entries(activeGames)) {
+      game.setInput(socket.id, dir);
     }
   });
 
   socket.on("end-game", ({ scores } = {}) => {
     for (const [, r] of getRooms()) {
       if (r.host === socket.id) {
+        if (activeGames[r.code]) {
+          activeGames[r.code].stop();
+          delete activeGames[r.code];
+        }
         r.gameStarted = false;
         io.to(r.code).emit("game-ended", { scores: scores || [] });
         console.log(`Game ended in room ${r.code}`);
@@ -113,6 +152,10 @@ io.on("connection", (socket) => {
         io.to(result.code).emit("room-updated", result.room);
         console.log(`Player left room ${result.code}`);
       } else {
+        if (activeGames[result.code]) {
+          activeGames[result.code].stop();
+          delete activeGames[result.code];
+        }
         console.log(`Room ${result.code} disbanded`);
       }
     }, 3000);

@@ -27,7 +27,8 @@ socket.on("kicked", () => {
   window.location.href = "index.html";
 });
 
-socket.on("game-started", () => {
+socket.on("game-started", ({ game }) => {
+  sessionStorage.setItem("gameType", game || "snake");
   window.location.href = "game.html";
 });
 
@@ -52,7 +53,7 @@ function renderRoom(room) {
 
   const startBtn = document.getElementById("start-btn");
   if (isHost) {
-    const canStart = room.players.length >= 2;
+    const canStart = room.players.length >= 1;
     startBtn.disabled = !canStart;
     startBtn.textContent = canStart ? "Start Game" : "Waiting for players...";
   }

@@ -1,5 +1,6 @@
-const saved = JSON.parse(sessionStorage.getItem("room") || "null");
-const myName = sessionStorage.getItem("myName");
+const saved    = JSON.parse(sessionStorage.getItem("room") || "null");
+const myName   = sessionStorage.getItem("myName");
+const gameType = sessionStorage.getItem("gameType") || "snake";
 
 if (!saved || !myName) {
   window.location.href = "index.html";
@@ -22,6 +23,7 @@ socket.on("room-updated", (room) => {
 });
 
 socket.on("game-ended", ({ scores }) => {
+  if (typeof cleanupGame === "function") cleanupGame();
   sessionStorage.setItem("scores", JSON.stringify(scores || []));
   window.location.href = "results.html";
 });
@@ -33,15 +35,11 @@ socket.on("kicked", () => {
 
 function initGame(room) {
   const isHost = room.host === socket.id;
-
-  document.getElementById("game-area").innerHTML = `
-    <p style="font-size:1.2rem; font-weight:700; color:#f7c948; margin-bottom:0.5rem;">
-      Game in progress!
-    </p>
-    <p class="waiting-msg">Games will appear here.</p>
-  `;
-
   document.getElementById("host-end-controls").classList.toggle("hidden", !isHost);
+
+  if (gameType === "snake") {
+    initSnakeClient(socket, socket.id, room);
+  }
 }
 
 document.getElementById("end-btn").addEventListener("click", () => {

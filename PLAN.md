@@ -6,85 +6,95 @@
 
 ---
 
-## Task 1 — Project scaffold
-Create the folder structure, package.json, and a minimal Express server that starts without errors.
-- `/backend/server.js` — Express app, hello world route
-- `/backend/package.json` — dependencies: express, socket.io, cors
-- `/frontend/index.html` — placeholder page
-**Done when:** `node backend/server.js` runs and http://localhost:3000 returns a response.
+## Task 1 — Project scaffold ✅
+## Task 2 — Room system (backend) ✅
+## Task 3 — Home page (frontend) ✅
+## Task 4 — Lobby page (frontend) ✅
+## Task 5 — Game shell (frontend + backend) ✅
+## Task 6 — Results screen ✅
+## Task 7 — Visual styling ✅
+## Task 8 — Hosting setup ✅
 
 ---
 
-## Task 2 — Room system (backend)
-Add room creation and joining logic on the server. No frontend yet.
-- Generate a unique 6-character room code
-- Track rooms in memory: `{ code, host, players[] }`
-- Socket.io events: `create-room`, `join-room`, `room-updated`, `error`
-**Done when:** Two browser tabs can connect and one can create a room, the other can join it (verified via browser console).
+## GAME: Multiplayer Snake
+
+> Up to 8 players. Each controls a snake. Random apples appear — most are good (grow snake), some are bad (instant death). Bad apples look almost identical to good ones but with a subtle color difference. Last snake alive wins.
+> All game logic runs server-side. Canvas rendered client-side.
+> Files: `frontend/games/snake.html`, `frontend/games/snake.js`, `backend/games/snake.js`
 
 ---
 
-## Task 3 — Home page (frontend)
-Build the landing page where players enter their name and create or join a room.
-- Input: player name
-- Two buttons: "Create Room" and "Join Room" (with code input)
-- Connects to backend via Socket.io
-- On success: redirects to lobby
-**Done when:** A player can type a name, create a room, and be redirected to lobby.html.
+### Snake Task 1 — Game loop & canvas (single player, local only)
+Build a working single-player snake game in isolation — no multiplayer yet.
+- `frontend/games/snake.html` — standalone page with a canvas
+- `frontend/games/snake.js` — local game loop, keyboard controls, snake movement on a grid
+- Grid: 40×40 cells. Canvas sized to fit desktop.
+- Snake starts at 3 cells, moves at a fixed tick rate
+- One good apple spawns at a time — eating it grows the snake
+- Hitting a wall or yourself ends the game
+- No bad apples yet, no multiplayer, no server
+**Done when:** You can open snake.html in a browser and play a working solo snake game.
 
 ---
 
-## Task 4 — Lobby page (frontend)
-Waiting room shown after joining. Displays all connected players.
-- Shows room code prominently so others can join
-- Lists all players as they join in real time
-- Host sees a "Start Game" button (disabled until 2+ players)
-- Non-host sees "Waiting for host..."
-**Done when:** Two browser tabs in the same room both show the player list updating live.
+### Snake Task 2 — Apple types
+Add bad apples to the solo game.
+- Good apple: bright red (`#e63946`)
+- Bad apple: very slightly darker/more muted red (`#c1121f`) — easy to miss under pressure
+- Bad apple spawns randomly alongside good apple (roughly 1 bad per 3 good)
+- Eating a bad apple ends the game immediately
+- Both apple types look like the same shape — only color differs
+**Done when:** Solo game has both apple types working correctly.
 
 ---
 
-## Task 5 — Game shell (frontend + backend)
-A blank game container that games will plug into later.
-- Backend emits `game-started` event with a game type
-- Frontend loads game.html and shows a placeholder "Game starts here"
-- Host can end the game and return everyone to lobby
-**Done when:** Host clicks Start, all players land on game.html, host can return to lobby.
+### Snake Task 3 — Server-side game logic
+Move the game loop to the server. Client sends inputs, server runs the simulation.
+- `backend/games/snake.js` — authoritative game loop
+  - Manages snake positions, movement, collision detection
+  - Spawns apples (good and bad)
+  - Broadcasts full game state to all players every tick
+- Server tick rate: 150ms
+- Socket.io events: `snake-input` (client→server), `snake-state` (server→client)
+- No frontend changes yet — verify via console logs
+**Done when:** Server runs the snake loop and logs state every tick.
 
 ---
 
-## Task 6 — Results screen
-End-of-game screen shown to all players.
-- Displays a simple scoreboard (name + score)
-- "Play Again" button returns to lobby
-- Scores live only in memory — gone when the game ends (by design)
-**Done when:** After a game ends, all players see the results screen with a working "Play Again" button.
+### Snake Task 4 — Multiplayer rendering
+Connect the frontend to the server game loop.
+- Update `frontend/games/snake.js` to receive `snake-state` and render all snakes
+- Each player's snake gets a unique color
+- Dead snakes are shown as faded/grey
+- Player's own snake is slightly brighter than others
+- Keyboard input sends `snake-input` to server
+- Canvas shows all snakes, all apples, grid background
+**Done when:** Two browser tabs can join the same room and see each other's snakes moving in real time.
 
 ---
 
-## Task 7 — Visual styling
-Apply the fun & colorful design across all pages.
-- Color palette, fonts, button styles, card layouts
-- Responsive enough for desktop (primary target)
-- Consistent look across home, lobby, game, results pages
-**Done when:** All pages look cohesive and polished.
+### Snake Task 5 — Win condition & integration
+Wire the game into the existing Claudeshot platform.
+- Server detects last snake alive → emits `game-ended` with scores (survival time or placement)
+- Host starts snake via existing `start-game` event — server routes it to the snake module
+- On death, player sees their snake fade out but stays watching
+- Game ends when 1 player remains (or all die simultaneously → no winner)
+- Results screen shows final placement (1st, 2nd, etc.)
+**Done when:** Full flow works — lobby → snake game → results → play again.
 
 ---
 
-## Task 8 — Hosting setup
-Deploy the site so it's accessible from anywhere.
-- Deploy backend to Render (free tier)
-- Deploy frontend to Netlify (free tier)
-- Connect frontend to the live backend URL
-**Done when:** The site works end-to-end on a real URL, not just localhost.
-
----
-
-## Games (separate plan)
-Games are added after Task 8. Each game is self-contained and plugs into the game shell from Task 5.
+### Snake Task 6 — Polish & deploy
+Final touches and push live.
+- Add a countdown (3-2-1-GO!) before snakes start moving
+- Show player names above their snakes
+- Show a live "snakes remaining" counter
+- Deploy to Render via git push
+**Done when:** Game is live at claudeshot.onrender.com and playable end-to-end.
 
 ---
 
 ## Session recovery
 If a session ends mid-task, start the next session with:
-> "We are building Claudeshot. Resume from Task [N]. The project is at /Users/jobbjonsson/Code/Claudeshot. Read PLAN.md first."
+> "We are building Claudeshot. Resume from Snake Task [N]. The project is at /Users/jobbjonsson/Code/Claudeshot. Read PLAN.md first."

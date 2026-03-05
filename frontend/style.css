@@ -42,7 +42,7 @@ body {
 
 .home-container    { max-width: 460px; text-align: center; }
 .lobby-container   { max-width: 780px; }
-.game-container    { max-width: 780px; text-align: center; }
+.game-container    { max-width: 700px; text-align: center; }
 .results-container { max-width: 540px; text-align: center; }
 
 /* ─── Logo & Tagline ────────────────────────────────────── */

@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Snake — Claudeshot</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: #1a1a2e;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      font-family: "Segoe UI", sans-serif;
+      color: #f0f0f0;
+    }
+
+    h1 {
+      font-size: 1.5rem;
+      font-weight: 800;
+      color: #f7c948;
+      margin-bottom: 1rem;
+      letter-spacing: -0.5px;
+    }
+
+    #game-wrapper {
+      position: relative;
+    }
+
+    canvas {
+      display: block;
+      border-radius: 10px;
+      border: 2px solid rgba(255,255,255,0.08);
+    }
+
+    #overlay {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      background: rgba(26,26,46,0.88);
+      border-radius: 10px;
+      gap: 1rem;
+    }
+
+    #overlay h2 {
+      font-size: 2rem;
+      font-weight: 900;
+      color: #f7c948;
+    }
+
+    #overlay p {
+      color: #aaa;
+      font-size: 1rem;
+    }
+
+    #overlay button {
+      padding: 0.75rem 2rem;
+      background: #f7c948;
+      color: #1a1a2e;
+      border: none;
+      border-radius: 8px;
+      font-size: 1rem;
+      font-weight: 800;
+      cursor: pointer;
+    }
+
+    #overlay button:hover { opacity: 0.9; }
+
+    #score-bar {
+      margin-top: 0.75rem;
+      font-size: 0.95rem;
+      color: #aaa;
+    }
+
+    #score-bar span {
+      color: #f7c948;
+      font-weight: 800;
+    }
+  </style>
+</head>
+<body>
+  <h1>Snake</h1>
+
+  <div id="game-wrapper">
+    <canvas id="canvas"></canvas>
+
+    <div id="overlay">
+      <h2>Snake</h2>
+      <p>Use arrow keys or WASD to move</p>
+      <button id="start-btn">Start Game</button>
+    </div>
+  </div>
+
+  <div id="score-bar">Score: <span id="score">0</span> &nbsp;|&nbsp; High Score: <span id="high-score">0</span></div>
+
+  <script src="snake.js"></script>
+</body>
+</html>
