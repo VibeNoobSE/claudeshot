@@ -59,6 +59,15 @@ body {
   color: var(--muted);
   font-size: 1rem;
   margin-bottom: 2rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.claude-mark {
+  flex-shrink: 0;
+  opacity: 0.75;
 }
 
 /* ─── Card ──────────────────────────────────────────────── */
