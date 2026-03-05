@@ -106,14 +106,16 @@ io.on("connection", (socket) => {
   });
 
   socket.on("disconnect", () => {
-    const result = leaveRoom(socket.id);
-    if (!result) return;
-    if (!result.disbanded) {
-      io.to(result.code).emit("room-updated", result.room);
-      console.log(`Player left room ${result.code}`);
-    } else {
-      console.log(`Room ${result.code} disbanded`);
-    }
+    setTimeout(() => {
+      const result = leaveRoom(socket.id);
+      if (!result) return;
+      if (!result.disbanded) {
+        io.to(result.code).emit("room-updated", result.room);
+        console.log(`Player left room ${result.code}`);
+      } else {
+        console.log(`Room ${result.code} disbanded`);
+      }
+    }, 3000);
   });
 });
 
