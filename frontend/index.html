@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Claudeshot</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;700;800;900&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="page-center">
+    <div class="container home-container">
+      <h1 class="logo">Claudeshot</h1>
+      <p class="tagline">Longshot by Claude</p>
+
+      <div class="card">
+        <input
+          type="text"
+          id="name-input"
+          placeholder="Enter your name"
+          maxlength="20"
+          autocomplete="off"
+        />
+
+        <button id="create-btn" class="btn btn-primary">Create Room</button>
+
+        <div class="divider">or join with a code</div>
+
+        <div class="join-row">
+          <input
+            type="text"
+            id="code-input"
+            placeholder="XXXXXX"
+            maxlength="6"
+            autocomplete="off"
+          />
+          <button id="join-btn" class="btn btn-secondary">Join</button>
+        </div>
+
+        <p id="error-msg" class="error hidden"></p>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+  <script src="config.js"></script>
+  <script src="home.js"></script>
+</body>
+</html>

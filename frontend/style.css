@@ -1,0 +1,352 @@
+/* ─── Reset & Base ─────────────────────────────────────── */
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+:root {
+  --yellow:   #f7c948;
+  --red:      #e94560;
+  --blue-dark:#0f3460;
+  --navy:     #16213e;
+  --bg:       #1a1a2e;
+  --text:     #f0f0f0;
+  --muted:    #8892a4;
+  --radius:   14px;
+  --shadow:   0 8px 40px rgba(0,0,0,0.5);
+}
+
+body {
+  font-family: "Nunito", "Segoe UI", sans-serif;
+  background: var(--bg);
+  background-image:
+    radial-gradient(ellipse at 20% 20%, rgba(247,201,72,0.07) 0%, transparent 50%),
+    radial-gradient(ellipse at 80% 80%, rgba(233,69,96,0.07) 0%, transparent 50%);
+  color: var(--text);
+  min-height: 100vh;
+}
+
+/* ─── Layout ────────────────────────────────────────────── */
+.page-center {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem;
+}
+
+.container {
+  width: 100%;
+}
+
+.home-container    { max-width: 460px; text-align: center; }
+.lobby-container   { max-width: 780px; }
+.game-container    { max-width: 780px; text-align: center; }
+.results-container { max-width: 540px; text-align: center; }
+
+/* ─── Logo & Tagline ────────────────────────────────────── */
+.logo {
+  font-size: 3.2rem;
+  font-weight: 900;
+  color: var(--yellow);
+  letter-spacing: -1px;
+  margin-bottom: 0.2rem;
+  text-shadow: 0 2px 20px rgba(247,201,72,0.3);
+}
+
+.tagline {
+  color: var(--muted);
+  font-size: 1rem;
+  margin-bottom: 2rem;
+}
+
+/* ─── Card ──────────────────────────────────────────────── */
+.card {
+  background: var(--navy);
+  border-radius: var(--radius);
+  padding: 2rem;
+  box-shadow: var(--shadow);
+  border: 1px solid rgba(255,255,255,0.05);
+}
+
+/* ─── Inputs ────────────────────────────────────────────── */
+input {
+  width: 100%;
+  padding: 0.8rem 1.1rem;
+  border-radius: 10px;
+  border: 2px solid rgba(255,255,255,0.08);
+  background: var(--blue-dark);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 1rem;
+  font-weight: 700;
+  outline: none;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+input:focus {
+  border-color: var(--yellow);
+  box-shadow: 0 0 0 3px rgba(247,201,72,0.15);
+}
+
+input::placeholder {
+  color: var(--muted);
+  font-weight: 400;
+}
+
+/* ─── Buttons ───────────────────────────────────────────── */
+.btn {
+  display: inline-block;
+  padding: 0.85rem 1.75rem;
+  border: none;
+  border-radius: 10px;
+  font-family: inherit;
+  font-size: 1rem;
+  font-weight: 800;
+  cursor: pointer;
+  transition: transform 0.1s, opacity 0.2s, box-shadow 0.2s;
+  width: 100%;
+}
+
+.btn:hover   { opacity: 0.92; }
+.btn:active  { transform: scale(0.97); }
+.btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.btn-primary {
+  background: var(--yellow);
+  color: #1a1a2e;
+  box-shadow: 0 4px 20px rgba(247,201,72,0.3);
+}
+
+.btn-secondary {
+  background: var(--red);
+  color: #fff;
+  box-shadow: 0 4px 20px rgba(233,69,96,0.3);
+}
+
+.btn-danger {
+  background: transparent;
+  color: var(--red);
+  border: 2px solid var(--red);
+  box-shadow: none;
+  margin-top: 1rem;
+}
+
+.btn-danger:hover {
+  background: rgba(233,69,96,0.1);
+}
+
+/* ─── Home page specifics ───────────────────────────────── */
+.home-container .card {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.divider {
+  color: var(--muted);
+  font-size: 0.85rem;
+  text-align: center;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.divider::before,
+.divider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: rgba(255,255,255,0.08);
+}
+
+.join-row {
+  display: flex;
+  gap: 0.6rem;
+}
+
+.join-row input {
+  text-transform: uppercase;
+  letter-spacing: 4px;
+  text-align: center;
+}
+
+.join-row .btn {
+  width: auto;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+/* ─── Lobby layout ──────────────────────────────────────── */
+.lobby-container .logo {
+  text-align: center;
+  margin-bottom: 1.5rem;
+}
+
+.lobby-layout {
+  display: grid;
+  grid-template-columns: 280px 1fr;
+  gap: 1.5rem;
+  align-items: start;
+}
+
+.room-info-card {
+  text-align: center;
+}
+
+.players-card {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+/* ─── Labels & helpers ──────────────────────────────────── */
+.label {
+  font-size: 0.75rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  color: var(--muted);
+  margin-bottom: 0.4rem;
+}
+
+.back-link {
+  display: inline-block;
+  color: var(--muted);
+  text-decoration: none;
+  font-size: 0.9rem;
+  font-weight: 700;
+  margin-bottom: 1rem;
+  transition: color 0.2s;
+}
+
+.back-link:hover { color: var(--text); }
+
+/* ─── Room code ─────────────────────────────────────────── */
+.room-code {
+  font-size: 2.8rem;
+  font-weight: 900;
+  letter-spacing: 8px;
+  color: var(--yellow);
+  margin: 0.5rem 0;
+  text-shadow: 0 2px 20px rgba(247,201,72,0.3);
+}
+
+.room-hint {
+  color: var(--muted);
+  font-size: 0.82rem;
+  margin-top: 0.5rem;
+}
+
+/* ─── Player list ───────────────────────────────────────── */
+.player-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.player-item {
+  background: var(--blue-dark);
+  padding: 0.7rem 1rem;
+  border-radius: 10px;
+  font-size: 0.95rem;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  border: 2px solid transparent;
+  transition: border-color 0.2s;
+}
+
+.player-item::before {
+  content: "●";
+  color: var(--muted);
+  font-size: 0.6rem;
+}
+
+.player-item.me {
+  border-color: var(--yellow);
+  color: var(--yellow);
+}
+
+.player-item.me::before { color: var(--yellow); }
+
+/* ─── Waiting message ───────────────────────────────────── */
+.waiting-msg {
+  color: var(--muted);
+  font-size: 0.95rem;
+  text-align: center;
+  padding: 0.5rem 0;
+}
+
+/* ─── Scoreboard ────────────────────────────────────────── */
+.scoreboard {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  margin-bottom: 1.5rem;
+  padding: 0;
+  text-align: left;
+}
+
+.score-item {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  background: var(--blue-dark);
+  padding: 0.75rem 1rem;
+  border-radius: 10px;
+  font-size: 1rem;
+  font-weight: 700;
+  border: 2px solid transparent;
+  transition: border-color 0.2s;
+}
+
+.score-item:first-child {
+  border-color: var(--yellow);
+  background: rgba(247,201,72,0.08);
+}
+
+.score-item.me { border-color: var(--red); }
+
+.score-rank {
+  font-size: 1.1rem;
+  font-weight: 900;
+  min-width: 1.75rem;
+  color: var(--muted);
+}
+
+.score-item:first-child .score-rank { color: var(--yellow); }
+
+.score-name { flex: 1; }
+
+.score-points {
+  color: var(--yellow);
+  font-weight: 900;
+}
+
+/* ─── Game card ─────────────────────────────────────────── */
+.game-card {
+  min-height: 300px;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+/* ─── Errors ────────────────────────────────────────────── */
+.error {
+  color: var(--red);
+  font-size: 0.9rem;
+  font-weight: 700;
+  text-align: center;
+}
+
+/* ─── Utilities ─────────────────────────────────────────── */
+.hidden { display: none; }

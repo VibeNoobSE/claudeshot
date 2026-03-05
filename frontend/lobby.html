@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Claudeshot — Lobby</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;700;800;900&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="page-center">
+    <div class="container lobby-container">
+      <a href="index.html" class="back-link">← Leave</a>
+      <h1 class="logo">Claudeshot</h1>
+
+      <div class="lobby-layout">
+        <div class="card room-info-card">
+          <p class="label">Room Code</p>
+          <div class="room-code" id="room-code">------</div>
+          <p class="room-hint">Share this code with your friends</p>
+        </div>
+
+        <div class="card players-card">
+          <p class="label">Players (<span id="player-count">0</span>)</p>
+          <ul class="player-list" id="player-list"></ul>
+
+          <div id="host-controls" class="hidden">
+            <button id="start-btn" class="btn btn-primary" disabled>Waiting for players...</button>
+          </div>
+
+          <div id="guest-msg" class="hidden">
+            <p class="waiting-msg">Waiting for host to start...</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+  <script src="config.js"></script>
+  <script src="lobby.js"></script>
+</body>
+</html>

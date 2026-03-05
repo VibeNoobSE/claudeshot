@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Claudeshot — Results</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;700;800;900&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="page-center">
+    <div class="container results-container">
+      <h1 class="logo">Results</h1>
+      <p class="tagline">Game over — here's how you did!</p>
+
+      <div class="card results-card">
+        <p class="label">Scoreboard</p>
+        <ol class="scoreboard" id="scoreboard"></ol>
+
+        <div id="host-controls" class="hidden">
+          <button id="play-again-btn" class="btn btn-primary">Play Again</button>
+        </div>
+
+        <div id="guest-msg" class="hidden">
+          <p class="waiting-msg">Waiting for host...</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+  <script src="config.js"></script>
+  <script src="results.js"></script>
+</body>
+</html>
