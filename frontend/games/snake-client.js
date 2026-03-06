@@ -97,12 +97,24 @@ function initSnakeClient(socket, myId, room) {
   socket.on("snake-state", (state) => {
     _latestState = state;
 
-    // Sync prediction from authoritative server state each tick
     const me = state.snakes.find(s => s.id === _myId);
-    if (me && me.alive && me.body.length >= 2) {
-      _predBody = me.body.map(b => ({ x: b.x, y: b.y }));
-    } else if (me && !me.alive) {
-      _predBody = null;
+    if (me && !me.alive) {
+      _predBody = null; // died — accept server reality
+    } else if (me && me.alive && me.body.length >= 2) {
+      // Infer server's current direction from body
+      const dx = me.body[0].x - me.body[1].x;
+      const dy = me.body[0].y - me.body[1].y;
+      let serverDir = null;
+      if      (dx ===  1) serverDir = "RIGHT";
+      else if (dx === -1) serverDir = "LEFT";
+      else if (dy ===  1) serverDir = "DOWN";
+      else if (dy === -1) serverDir = "UP";
+
+      if (!_predBody || serverDir === _lastDir) {
+        // Server has caught up to our latest input — safe to sync
+        _predBody = me.body.map(b => ({ x: b.x, y: b.y }));
+      }
+      // else: server is still behind our input — keep prediction, don't snap back
     }
 
     drawState(state);
