@@ -34,7 +34,7 @@ const TOTAL_ROUNDS = 5;
 function startSnakeRound(r) {
   const round = activeRounds[r.code];
   r.gameStarted = true;
-  io.to(r.code).emit("game-started", { game: "snake", round: round.current, totalRounds: TOTAL_ROUNDS });
+  io.to(r.code).emit("game-started", { game: "snake", round: round.current, totalRounds: round.total });
 
   const game = new SnakeGame(r, io, (roundScores) => {
     delete activeGames[r.code];
@@ -49,13 +49,13 @@ function startSnakeRound(r) {
       .map(([name, score]) => ({ name, score }))
       .sort((a, b) => b.score - a.score);
 
-    if (round.current >= TOTAL_ROUNDS) {
+    if (round.current >= round.total) {
       delete activeRounds[r.code];
       io.to(r.code).emit("game-ended", { scores: totalScoresSorted });
     } else {
       io.to(r.code).emit("round-ended", {
         round: round.current,
-        totalRounds: TOTAL_ROUNDS,
+        totalRounds: round.total,
         roundScores,
         totalScores: totalScoresSorted
       });
@@ -68,7 +68,7 @@ function startSnakeRound(r) {
 
   activeGames[r.code] = game;
   game.start();
-  console.log(`Snake round ${round.current}/${TOTAL_ROUNDS} started in room ${r.code}`);
+  console.log(`Snake round ${round.current}/${round.total} started in room ${r.code}`);
 }
 
 io.on("connection", (socket) => {
@@ -135,10 +135,11 @@ io.on("connection", (socket) => {
     console.log(`${name} rejoined room ${result.code}`);
   });
 
-  socket.on("start-game", () => {
+  socket.on("start-game", ({ rounds } = {}) => {
     for (const [, r] of getRooms()) {
       if (r.host === socket.id) {
-        activeRounds[r.code] = { current: 1, totalScores: {} };
+        const total = Math.min(5, Math.max(1, parseInt(rounds) || 1));
+        activeRounds[r.code] = { current: 1, total, totalScores: {} };
         startSnakeRound(r);
         return;
       }

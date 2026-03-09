@@ -59,6 +59,16 @@ function renderRoom(room) {
   }
 }
 
+let selectedRounds = 1;
+
+document.querySelectorAll(".round-btn").forEach(btn => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll(".round-btn").forEach(b => b.classList.remove("active"));
+    btn.classList.add("active");
+    selectedRounds = parseInt(btn.dataset.rounds);
+  });
+});
+
 document.getElementById("start-btn").addEventListener("click", () => {
-  socket.emit("start-game");
+  socket.emit("start-game", { rounds: selectedRounds });
 });

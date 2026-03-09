@@ -357,5 +357,36 @@ input::placeholder {
   text-align: center;
 }
 
+/* ─── Round picker ──────────────────────────────────────── */
+.round-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  margin-bottom: 0.75rem;
+}
+.round-btns {
+  display: flex;
+  gap: 0.4rem;
+}
+.round-btn {
+  flex: 1;
+  padding: 0.4rem 0;
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 6px;
+  color: var(--muted);
+  font-family: inherit;
+  font-size: 0.9rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+.round-btn:hover { background: rgba(255,255,255,0.1); color: var(--text); }
+.round-btn.active {
+  background: var(--yellow);
+  border-color: var(--yellow);
+  color: #1a1a2e;
+}
+
 /* ─── Utilities ─────────────────────────────────────────── */
 .hidden { display: none; }
