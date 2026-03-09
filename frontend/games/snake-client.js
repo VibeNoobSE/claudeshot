@@ -3,16 +3,13 @@ const ROWS = 40;
 const CELL = 16;
 
 const OPPOSITE = { UP: "DOWN", DOWN: "UP", LEFT: "RIGHT", RIGHT: "LEFT" };
-const DELTA    = { RIGHT:{x:1,y:0}, LEFT:{x:-1,y:0}, UP:{x:0,y:-1}, DOWN:{x:0,y:1} };
 
 let _socket, _myId, _lastDir, _canvas, _ctx, _keyHandler, _latestState;
-let _pendingBody = null; // one-step prediction while server processes our turn
 
 function initSnakeClient(socket, myId) {
-  _socket      = socket;
-  _myId        = myId;
-  _lastDir     = null; // set from first server state so it matches actual starting direction
-  _pendingBody = null;
+  _socket  = socket;
+  _myId    = myId;
+  _lastDir = null; // set from first server state so it matches actual starting direction
 
   // Build canvas inside #game-area
   const gameArea = document.getElementById("game-area");
@@ -88,30 +85,17 @@ function initSnakeClient(socket, myId) {
   socket.on("snake-state", (state) => {
     _latestState = state;
 
-    const me = state.snakes.find(s => s.id === _myId);
-    if (me && me.alive && me.body.length >= 2) {
-      const dx = me.body[0].x - me.body[1].x;
-      const dy = me.body[0].y - me.body[1].y;
-      let serverDir = null;
-      if      (dx ===  1) serverDir = "RIGHT";
-      else if (dx === -1) serverDir = "LEFT";
-      else if (dy ===  1) serverDir = "DOWN";
-      else if (dy === -1) serverDir = "UP";
-
-      if (_lastDir === null) _lastDir = serverDir; // init on first state
-
-      if (serverDir && serverDir !== _lastDir) {
-        // Server hasn't processed our turn yet — show body one step ahead in our direction
-        const d = DELTA[_lastDir];
-        _pendingBody = [
-          { x: me.body[0].x + d.x, y: me.body[0].y + d.y },
-          ...me.body.slice(0, -1)
-        ];
-      } else {
-        _pendingBody = null; // server caught up, no lookahead needed
+    // Init _lastDir from first server state (picks up actual starting direction)
+    if (_lastDir === null) {
+      const me = state.snakes.find(s => s.id === _myId);
+      if (me && me.alive && me.body.length >= 2) {
+        const dx = me.body[0].x - me.body[1].x;
+        const dy = me.body[0].y - me.body[1].y;
+        if      (dx ===  1) _lastDir = "RIGHT";
+        else if (dx === -1) _lastDir = "LEFT";
+        else if (dy ===  1) _lastDir = "DOWN";
+        else if (dy === -1) _lastDir = "UP";
       }
-    } else {
-      _pendingBody = null;
     }
 
     drawState(state);
@@ -171,9 +155,7 @@ function drawState(state) {
   [...dead, ...alive].forEach(snake => {
     const isMe   = snake.id === _myId;
     const isDead = !snake.alive;
-    const body   = (isMe && _pendingBody) ? _pendingBody : snake.body;
-
-    body.forEach((seg, i) => {
+    snake.body.forEach((seg, i) => {
       const isHead = i === 0;
 
       let color;
@@ -199,8 +181,8 @@ function drawState(state) {
     });
 
     // Player name above head
-    if (body.length > 0) {
-      const head = body[0];
+    if (snake.body.length > 0) {
+      const head = snake.body[0];
       _ctx.font = "bold 10px Nunito, sans-serif";
       _ctx.textAlign = "center";
       _ctx.fillStyle = isDead ? "rgba(120,120,120,0.5)" : (isMe ? "#fff" : "#ccc");
