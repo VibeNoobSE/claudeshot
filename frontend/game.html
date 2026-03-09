@@ -23,8 +23,16 @@
       </p>
 
       <div class="card game-card">
+        <div id="round-indicator" style="font-size:0.85rem;color:#8892a4;font-weight:700;letter-spacing:1px;margin-bottom:0.25rem;min-height:1.2em;"></div>
+
         <div id="game-area">
           <p class="waiting-msg">Game is loading...</p>
+        </div>
+
+        <div id="round-overlay" class="hidden" style="margin-top:1rem;padding:1.25rem 1.5rem;background:rgba(15,23,42,0.95);border-radius:10px;border:1px solid rgba(255,255,255,0.08);min-width:260px;">
+          <p id="round-overlay-title" style="font-size:1.1rem;font-weight:900;color:#f7c948;text-align:center;margin-bottom:0.75rem;"></p>
+          <ol id="round-overlay-scores" style="list-style:none;padding:0;margin:0 0 0.75rem;display:flex;flex-direction:column;gap:0.3rem;"></ol>
+          <p id="round-overlay-next" style="font-size:0.8rem;color:#8892a4;text-align:center;"></p>
         </div>
 
         <div id="host-end-controls" class="hidden">

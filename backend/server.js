@@ -26,6 +26,50 @@ app.get("/", (req, res) => {
 
 // Active snake games keyed by room code
 const activeGames = {};
+// Round tracking keyed by room code
+const activeRounds = {};
+
+const TOTAL_ROUNDS = 5;
+
+function startSnakeRound(r) {
+  const round = activeRounds[r.code];
+  r.gameStarted = true;
+  io.to(r.code).emit("game-started", { game: "snake", round: round.current, totalRounds: TOTAL_ROUNDS });
+
+  const game = new SnakeGame(r, io, (roundScores) => {
+    delete activeGames[r.code];
+    r.gameStarted = false;
+
+    // Accumulate scores
+    roundScores.forEach(({ name, score }) => {
+      round.totalScores[name] = (round.totalScores[name] || 0) + score;
+    });
+
+    const totalScoresSorted = Object.entries(round.totalScores)
+      .map(([name, score]) => ({ name, score }))
+      .sort((a, b) => b.score - a.score);
+
+    if (round.current >= TOTAL_ROUNDS) {
+      delete activeRounds[r.code];
+      io.to(r.code).emit("game-ended", { scores: totalScoresSorted });
+    } else {
+      io.to(r.code).emit("round-ended", {
+        round: round.current,
+        totalRounds: TOTAL_ROUNDS,
+        roundScores,
+        totalScores: totalScoresSorted
+      });
+      round.current++;
+      setTimeout(() => {
+        if (getRooms().has(r.code)) startSnakeRound(r);
+      }, 7000);
+    }
+  });
+
+  activeGames[r.code] = game;
+  game.start();
+  console.log(`Snake round ${round.current}/${TOTAL_ROUNDS} started in room ${r.code}`);
+}
 
 io.on("connection", (socket) => {
   console.log("Player connected:", socket.id);
@@ -94,18 +138,8 @@ io.on("connection", (socket) => {
   socket.on("start-game", () => {
     for (const [, r] of getRooms()) {
       if (r.host === socket.id) {
-        r.gameStarted = true;
-        io.to(r.code).emit("game-started", { game: "snake" });
-
-        const game = new SnakeGame(r, io, (scores) => {
-          delete activeGames[r.code];
-          r.gameStarted = false;
-          io.to(r.code).emit("game-ended", { scores });
-        });
-        activeGames[r.code] = game;
-        game.start();
-
-        console.log(`Snake game started in room ${r.code}`);
+        activeRounds[r.code] = { current: 1, totalScores: {} };
+        startSnakeRound(r);
         return;
       }
     }
@@ -119,16 +153,22 @@ io.on("connection", (socket) => {
     }
   });
 
-  socket.on("end-game", ({ scores } = {}) => {
+  socket.on("end-game", () => {
     for (const [, r] of getRooms()) {
       if (r.host === socket.id) {
         if (activeGames[r.code]) {
           activeGames[r.code].stop();
           delete activeGames[r.code];
         }
+        // Build final scores from whatever has been accumulated so far
+        const round = activeRounds[r.code];
+        const scores = round
+          ? Object.entries(round.totalScores).map(([name, score]) => ({ name, score })).sort((a, b) => b.score - a.score)
+          : [];
+        delete activeRounds[r.code];
         r.gameStarted = false;
-        io.to(r.code).emit("game-ended", { scores: scores || [] });
-        console.log(`Game ended in room ${r.code}`);
+        io.to(r.code).emit("game-ended", { scores });
+        console.log(`Game ended early in room ${r.code}`);
         return;
       }
     }
@@ -156,6 +196,7 @@ io.on("connection", (socket) => {
           activeGames[result.code].stop();
           delete activeGames[result.code];
         }
+        delete activeRounds[result.code];
         console.log(`Room ${result.code} disbanded`);
       }
     }, 3000);

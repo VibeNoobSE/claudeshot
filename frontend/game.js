@@ -22,6 +22,21 @@ socket.on("room-updated", (room) => {
   sessionStorage.setItem("room", JSON.stringify(room));
 });
 
+// Update round indicator and re-init for rounds 2+
+socket.on("game-started", ({ game: g, round, totalRounds }) => {
+  const indicator = document.getElementById("round-indicator");
+  if (indicator && round) indicator.textContent = `Round ${round} / ${totalRounds}`;
+  if (!round || round <= 1) return; // first round already initialized via room-joined
+  document.getElementById("round-overlay").classList.add("hidden");
+  const room = JSON.parse(sessionStorage.getItem("room") || "null");
+  if (room) initGame(room);
+});
+
+socket.on("round-ended", ({ round, totalRounds, roundScores, totalScores }) => {
+  if (typeof cleanupGame === "function") cleanupGame();
+  showRoundOverlay(round, totalRounds, roundScores, totalScores);
+});
+
 socket.on("game-ended", ({ scores }) => {
   if (typeof cleanupGame === "function") cleanupGame();
   sessionStorage.setItem("scores", JSON.stringify(scores || []));
@@ -33,13 +48,41 @@ socket.on("kicked", () => {
   window.location.href = "index.html";
 });
 
-function initGame(room) {
+function initGame(room, round, totalRounds) {
   const isHost = room.host === socket.id;
   document.getElementById("host-end-controls").classList.toggle("hidden", !isHost);
+
+  const indicator = document.getElementById("round-indicator");
+  if (indicator && round) indicator.textContent = `Round ${round} / ${totalRounds}`;
 
   if (gameType === "snake") {
     initSnakeClient(socket, socket.id, room);
   }
+}
+
+function showRoundOverlay(round, totalRounds, roundScores, totalScores) {
+  const overlay  = document.getElementById("round-overlay");
+  const title    = document.getElementById("round-overlay-title");
+  const list     = document.getElementById("round-overlay-scores");
+  const nextLine = document.getElementById("round-overlay-next");
+
+  title.textContent = `Round ${round} complete`;
+
+  list.innerHTML = totalScores.map((s, i) =>
+    `<li style="display:flex;justify-content:space-between;gap:1.5rem;padding:0.2rem 0;color:${s.name === myName ? "#f7c948" : "#e2e8f0"};">
+      <span>${i + 1}. ${s.name}</span><span style="font-weight:800;">${s.score} pts</span>
+    </li>`
+  ).join("");
+
+  let secs = 7;
+  nextLine.textContent = `Next round in ${secs}s…`;
+  const timer = setInterval(() => {
+    secs--;
+    if (secs <= 0) { clearInterval(timer); nextLine.textContent = ""; }
+    else nextLine.textContent = `Next round in ${secs}s…`;
+  }, 1000);
+
+  overlay.classList.remove("hidden");
 }
 
 document.getElementById("end-btn").addEventListener("click", () => {
