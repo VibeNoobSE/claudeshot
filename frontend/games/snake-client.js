@@ -5,15 +5,18 @@ const CELL = 16;
 const OPPOSITE = { UP: "DOWN", DOWN: "UP", LEFT: "RIGHT", RIGHT: "LEFT" };
 const DELTA    = { RIGHT:{x:1,y:0}, LEFT:{x:-1,y:0}, UP:{x:0,y:-1}, DOWN:{x:0,y:1} };
 
-let _socket, _myId, _lastDir, _canvas, _ctx, _keyHandler, _latestState;
-let _localBody = null; // client-side snake body, advances every tick locally
-let _localLoop = null; // local game loop interval
+let _socket, _myId, _canvas, _ctx, _keyHandler, _latestState;
+let _localBody = null;  // client-predicted snake body
+let _localDir  = null;  // direction the local loop is currently moving
+let _queuedDir = null;  // next direction from keypress, consumed each local tick
+let _localLoop = null;
 
 function initSnakeClient(socket, myId) {
   _socket    = socket;
   _myId      = myId;
-  _lastDir   = null;
   _localBody = null;
+  _localDir  = null;
+  _queuedDir = null;
   _localLoop = null;
 
   // Build canvas inside #game-area
@@ -39,7 +42,6 @@ function initSnakeClient(socket, myId) {
   gameArea.appendChild(_canvas);
   _ctx = _canvas.getContext("2d");
 
-  // Draw waiting screen
   _ctx.fillStyle = "#0f172a";
   _ctx.fillRect(0, 0, _canvas.width, _canvas.height);
 
@@ -55,24 +57,22 @@ function initSnakeClient(socket, myId) {
     if (!dir) return;
     e.preventDefault();
 
-    if (_lastDir && dir !== OPPOSITE[_lastDir] && dir !== _lastDir) {
-      _lastDir = dir;
+    // Queue the turn — consumed by the local loop next tick (mirrors server behaviour)
+    if (_localDir && dir !== OPPOSITE[_localDir] && dir !== _localDir) {
+      _queuedDir = dir;
       _socket.emit("snake-input", { dir });
     }
   };
   window.addEventListener("keydown", _keyHandler);
 
-  // Countdown before game starts
+  // Countdown
   socket.on("snake-countdown", ({ count }) => {
     _ctx.fillStyle = "#0f172a";
     _ctx.fillRect(0, 0, _canvas.width, _canvas.height);
-
     const bar = document.getElementById("snake-status");
     if (bar) bar.textContent = count > 0 ? "Get ready!" : "GO!";
-
     _ctx.textAlign = "center";
     _ctx.textBaseline = "middle";
-
     if (count > 0) {
       _ctx.font = "bold 120px Nunito, sans-serif";
       _ctx.fillStyle = "#f7c948";
@@ -82,18 +82,16 @@ function initSnakeClient(socket, myId) {
       _ctx.fillStyle = "#4ade80";
       _ctx.fillText("GO!", _canvas.width / 2, _canvas.height / 2);
     }
-
     _ctx.textBaseline = "alphabetic";
   });
 
-  // Receive authoritative game state from server
+  // Authoritative server state
   socket.on("snake-state", (state) => {
     _latestState = state;
-
     const me = state.snakes.find(s => s.id === _myId);
-    if (me && me.alive && me.body.length >= 2) {
 
-      // Infer server's current direction from body positions
+    if (me && me.alive && me.body.length >= 2) {
+      // Infer server direction so we can initialise _localDir once
       const dx = me.body[0].x - me.body[1].x;
       const dy = me.body[0].y - me.body[1].y;
       let serverDir = null;
@@ -102,20 +100,22 @@ function initSnakeClient(socket, myId) {
       else if (dy ===  1) serverDir = "DOWN";
       else if (dy === -1) serverDir = "UP";
 
-      // Init direction from first state
-      if (_lastDir === null) _lastDir = serverDir;
+      if (_localDir === null) _localDir = serverDir;
 
-      // Reconcile local body with server — but only when server has caught up
-      // to our latest direction input, to avoid snap-back on turns
-      if (!_localBody || serverDir === _lastDir) {
-        _localBody = me.body.map(b => ({ x: b.x, y: b.y }));
-      }
+      // Reconcile body from server — local loop and server run at the same
+      // rate with the same queue logic so they stay in sync
+      _localBody = me.body.map(b => ({ x: b.x, y: b.y }));
 
-      // Start the local loop once we have a valid starting position
+      // Start local loop once we have a valid starting position
       if (!_localLoop) {
         _localLoop = setInterval(() => {
-          if (!_localBody || !_lastDir) return;
-          const d = DELTA[_lastDir];
+          if (!_localBody || !_localDir) return;
+          // Process queued turn exactly as the server does: one per tick
+          if (_queuedDir && _queuedDir !== OPPOSITE[_localDir]) {
+            _localDir = _queuedDir;
+            _queuedDir = null;
+          }
+          const d = DELTA[_localDir];
           const newHead = { x: _localBody[0].x + d.x, y: _localBody[0].y + d.y };
           _localBody = [newHead, ..._localBody.slice(0, -1)];
           if (_latestState) drawState(_latestState);
@@ -123,7 +123,6 @@ function initSnakeClient(socket, myId) {
       }
 
     } else if (me && !me.alive) {
-      // Snake died — stop local prediction, server is now authority
       _localBody = null;
     }
 
@@ -145,7 +144,6 @@ function updateStatus(state) {
 }
 
 function drawState(state) {
-  // Background
   _ctx.fillStyle = "#0f172a";
   _ctx.fillRect(0, 0, _canvas.width, _canvas.height);
 
@@ -153,28 +151,17 @@ function drawState(state) {
   _ctx.strokeStyle = "rgba(255,255,255,0.03)";
   _ctx.lineWidth = 0.5;
   for (let x = 0; x <= COLS; x++) {
-    _ctx.beginPath();
-    _ctx.moveTo(x * CELL, 0);
-    _ctx.lineTo(x * CELL, _canvas.height);
-    _ctx.stroke();
+    _ctx.beginPath(); _ctx.moveTo(x * CELL, 0); _ctx.lineTo(x * CELL, _canvas.height); _ctx.stroke();
   }
   for (let y = 0; y <= ROWS; y++) {
-    _ctx.beginPath();
-    _ctx.moveTo(0, y * CELL);
-    _ctx.lineTo(_canvas.width, y * CELL);
-    _ctx.stroke();
+    _ctx.beginPath(); _ctx.moveTo(0, y * CELL); _ctx.lineTo(_canvas.width, y * CELL); _ctx.stroke();
   }
 
   // Apples
   state.apples.forEach(a => {
     _ctx.fillStyle = a.type === "good" ? "#e63946" : "#c1121f";
     _ctx.beginPath();
-    _ctx.arc(
-      a.x * CELL + CELL / 2,
-      a.y * CELL + CELL / 2,
-      CELL / 2 - 2,
-      0, Math.PI * 2
-    );
+    _ctx.arc(a.x * CELL + CELL/2, a.y * CELL + CELL/2, CELL/2 - 2, 0, Math.PI * 2);
     _ctx.fill();
   });
 
@@ -185,60 +172,36 @@ function drawState(state) {
   [...dead, ...alive].forEach(snake => {
     const isMe   = snake.id === _myId;
     const isDead = !snake.alive;
-
-    // Use local predicted body for own snake, server body for everyone else
-    const body = (isMe && _localBody) ? _localBody : snake.body;
+    const body   = (isMe && _localBody) ? _localBody : snake.body;
 
     body.forEach((seg, i) => {
       const isHead = i === 0;
-
       let color;
-      if (isDead) {
-        color = "rgba(120,120,120,0.35)";
-      } else if (isMe) {
-        color = isHead ? lighten(snake.color, 40) : snake.color;
-      } else {
-        color = isHead ? snake.color : darken(snake.color, 20);
-      }
+      if (isDead)      color = "rgba(120,120,120,0.35)";
+      else if (isMe)   color = isHead ? lighten(snake.color, 40) : snake.color;
+      else             color = isHead ? snake.color : darken(snake.color, 20);
 
       const padding = isHead ? 1 : 2;
       _ctx.fillStyle = color;
       _ctx.beginPath();
-      _ctx.roundRect(
-        seg.x * CELL + padding,
-        seg.y * CELL + padding,
-        CELL - padding * 2,
-        CELL - padding * 2,
-        isHead ? 4 : 3
-      );
+      _ctx.roundRect(seg.x*CELL+padding, seg.y*CELL+padding, CELL-padding*2, CELL-padding*2, isHead ? 4 : 3);
       _ctx.fill();
     });
 
-    // Player name above head
     if (body.length > 0) {
       const head = body[0];
       _ctx.font = "bold 10px Nunito, sans-serif";
       _ctx.textAlign = "center";
       _ctx.fillStyle = isDead ? "rgba(120,120,120,0.5)" : (isMe ? "#fff" : "#ccc");
-      _ctx.fillText(
-        snake.name,
-        head.x * CELL + CELL / 2,
-        head.y * CELL - 3
-      );
+      _ctx.fillText(snake.name, head.x*CELL + CELL/2, head.y*CELL - 3);
     }
   });
 }
 
-function lighten(hex, amount) {
-  return adjustColor(hex, amount);
-}
-
-function darken(hex, amount) {
-  return adjustColor(hex, -amount);
-}
-
+function lighten(hex, amount) { return adjustColor(hex, amount); }
+function darken(hex, amount)  { return adjustColor(hex, -amount); }
 function adjustColor(hex, amount) {
-  const num = parseInt(hex.replace("#", ""), 16);
+  const num = parseInt(hex.replace("#",""), 16);
   const r = Math.min(255, Math.max(0, (num >> 16) + amount));
   const g = Math.min(255, Math.max(0, ((num >> 8) & 0xff) + amount));
   const b = Math.min(255, Math.max(0, (num & 0xff) + amount));
