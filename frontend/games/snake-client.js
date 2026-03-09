@@ -3,13 +3,18 @@ const ROWS = 40;
 const CELL = 16;
 
 const OPPOSITE = { UP: "DOWN", DOWN: "UP", LEFT: "RIGHT", RIGHT: "LEFT" };
+const DELTA    = { RIGHT:{x:1,y:0}, LEFT:{x:-1,y:0}, UP:{x:0,y:-1}, DOWN:{x:0,y:1} };
 
 let _socket, _myId, _lastDir, _canvas, _ctx, _keyHandler, _latestState;
+let _localBody = null; // client-side snake body, advances every tick locally
+let _localLoop = null; // local game loop interval
 
 function initSnakeClient(socket, myId) {
-  _socket  = socket;
-  _myId    = myId;
-  _lastDir = null; // set from first server state so it matches actual starting direction
+  _socket    = socket;
+  _myId      = myId;
+  _lastDir   = null;
+  _localBody = null;
+  _localLoop = null;
 
   // Build canvas inside #game-area
   const gameArea = document.getElementById("game-area");
@@ -48,7 +53,7 @@ function initSnakeClient(socket, myId) {
     };
     const dir = map[e.key];
     if (!dir) return;
-    e.preventDefault(); // always prevent page scroll for arrow/WASD
+    e.preventDefault();
 
     if (_lastDir && dir !== OPPOSITE[_lastDir] && dir !== _lastDir) {
       _lastDir = dir;
@@ -81,21 +86,45 @@ function initSnakeClient(socket, myId) {
     _ctx.textBaseline = "alphabetic";
   });
 
-  // Receive game state
+  // Receive authoritative game state from server
   socket.on("snake-state", (state) => {
     _latestState = state;
 
-    // Init _lastDir from first server state (picks up actual starting direction)
-    if (_lastDir === null) {
-      const me = state.snakes.find(s => s.id === _myId);
-      if (me && me.alive && me.body.length >= 2) {
-        const dx = me.body[0].x - me.body[1].x;
-        const dy = me.body[0].y - me.body[1].y;
-        if      (dx ===  1) _lastDir = "RIGHT";
-        else if (dx === -1) _lastDir = "LEFT";
-        else if (dy ===  1) _lastDir = "DOWN";
-        else if (dy === -1) _lastDir = "UP";
+    const me = state.snakes.find(s => s.id === _myId);
+    if (me && me.alive && me.body.length >= 2) {
+
+      // Infer server's current direction from body positions
+      const dx = me.body[0].x - me.body[1].x;
+      const dy = me.body[0].y - me.body[1].y;
+      let serverDir = null;
+      if      (dx ===  1) serverDir = "RIGHT";
+      else if (dx === -1) serverDir = "LEFT";
+      else if (dy ===  1) serverDir = "DOWN";
+      else if (dy === -1) serverDir = "UP";
+
+      // Init direction from first state
+      if (_lastDir === null) _lastDir = serverDir;
+
+      // Reconcile local body with server — but only when server has caught up
+      // to our latest direction input, to avoid snap-back on turns
+      if (!_localBody || serverDir === _lastDir) {
+        _localBody = me.body.map(b => ({ x: b.x, y: b.y }));
       }
+
+      // Start the local loop once we have a valid starting position
+      if (!_localLoop) {
+        _localLoop = setInterval(() => {
+          if (!_localBody || !_lastDir) return;
+          const d = DELTA[_lastDir];
+          const newHead = { x: _localBody[0].x + d.x, y: _localBody[0].y + d.y };
+          _localBody = [newHead, ..._localBody.slice(0, -1)];
+          if (_latestState) drawState(_latestState);
+        }, 120);
+      }
+
+    } else if (me && !me.alive) {
+      // Snake died — stop local prediction, server is now authority
+      _localBody = null;
     }
 
     drawState(state);
@@ -105,6 +134,7 @@ function initSnakeClient(socket, myId) {
 
 function cleanupGame() {
   if (_keyHandler) window.removeEventListener("keydown", _keyHandler);
+  if (_localLoop)  { clearInterval(_localLoop); _localLoop = null; }
 }
 
 function updateStatus(state) {
@@ -155,7 +185,11 @@ function drawState(state) {
   [...dead, ...alive].forEach(snake => {
     const isMe   = snake.id === _myId;
     const isDead = !snake.alive;
-    snake.body.forEach((seg, i) => {
+
+    // Use local predicted body for own snake, server body for everyone else
+    const body = (isMe && _localBody) ? _localBody : snake.body;
+
+    body.forEach((seg, i) => {
       const isHead = i === 0;
 
       let color;
@@ -181,8 +215,8 @@ function drawState(state) {
     });
 
     // Player name above head
-    if (snake.body.length > 0) {
-      const head = snake.body[0];
+    if (body.length > 0) {
+      const head = body[0];
       _ctx.font = "bold 10px Nunito, sans-serif";
       _ctx.textAlign = "center";
       _ctx.fillStyle = isDead ? "rgba(120,120,120,0.5)" : (isMe ? "#fff" : "#ccc");
