@@ -113,6 +113,7 @@ function initSnakeClient(socket, myId, room) {
       if (!_predBody || serverDir === _lastDir) {
         // Server has caught up to our latest input — safe to sync
         _predBody = me.body.map(b => ({ x: b.x, y: b.y }));
+        _lastDir = serverDir; // keep client direction in sync with server
       }
       // else: server is still behind our input — keep prediction, don't snap back
     }
