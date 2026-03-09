@@ -3,21 +3,13 @@ const ROWS = 40;
 const CELL = 16;
 
 const OPPOSITE = { UP: "DOWN", DOWN: "UP", LEFT: "RIGHT", RIGHT: "LEFT" };
-const DELTA    = { RIGHT:{x:1,y:0}, LEFT:{x:-1,y:0}, UP:{x:0,y:-1}, DOWN:{x:0,y:1} };
 
-let _socket, _myId, _canvas, _ctx, _keyHandler, _latestState;
-let _localBody = null;  // client-predicted snake body
-let _localDir  = null;  // direction the local loop is currently moving
-let _queuedDir = null;  // next direction from keypress, consumed each local tick
-let _localLoop = null;
+let _socket, _myId, _lastDir, _canvas, _ctx, _keyHandler, _latestState;
 
 function initSnakeClient(socket, myId) {
-  _socket    = socket;
-  _myId      = myId;
-  _localBody = null;
-  _localDir  = null;
-  _queuedDir = null;
-  _localLoop = null;
+  _socket  = socket;
+  _myId    = myId;
+  _lastDir = null; // set from first server state so it matches actual starting direction
 
   // Build canvas inside #game-area
   const gameArea = document.getElementById("game-area");
@@ -42,6 +34,7 @@ function initSnakeClient(socket, myId) {
   gameArea.appendChild(_canvas);
   _ctx = _canvas.getContext("2d");
 
+  // Draw waiting screen
   _ctx.fillStyle = "#0f172a";
   _ctx.fillRect(0, 0, _canvas.width, _canvas.height);
 
@@ -55,24 +48,26 @@ function initSnakeClient(socket, myId) {
     };
     const dir = map[e.key];
     if (!dir) return;
-    e.preventDefault();
+    e.preventDefault(); // always prevent page scroll for arrow/WASD
 
-    // Queue the turn — consumed by the local loop next tick (mirrors server behaviour)
-    if (_localDir && dir !== OPPOSITE[_localDir] && dir !== _localDir) {
-      _queuedDir = dir;
+    if (_lastDir && dir !== OPPOSITE[_lastDir] && dir !== _lastDir) {
+      _lastDir = dir;
       _socket.emit("snake-input", { dir });
     }
   };
   window.addEventListener("keydown", _keyHandler);
 
-  // Countdown
+  // Countdown before game starts
   socket.on("snake-countdown", ({ count }) => {
     _ctx.fillStyle = "#0f172a";
     _ctx.fillRect(0, 0, _canvas.width, _canvas.height);
+
     const bar = document.getElementById("snake-status");
     if (bar) bar.textContent = count > 0 ? "Get ready!" : "GO!";
+
     _ctx.textAlign = "center";
     _ctx.textBaseline = "middle";
+
     if (count > 0) {
       _ctx.font = "bold 120px Nunito, sans-serif";
       _ctx.fillStyle = "#f7c948";
@@ -82,48 +77,25 @@ function initSnakeClient(socket, myId) {
       _ctx.fillStyle = "#4ade80";
       _ctx.fillText("GO!", _canvas.width / 2, _canvas.height / 2);
     }
+
     _ctx.textBaseline = "alphabetic";
   });
 
-  // Authoritative server state
+  // Receive game state
   socket.on("snake-state", (state) => {
     _latestState = state;
-    const me = state.snakes.find(s => s.id === _myId);
 
-    if (me && me.alive && me.body.length >= 2) {
-      // Infer server direction so we can initialise _localDir once
-      const dx = me.body[0].x - me.body[1].x;
-      const dy = me.body[0].y - me.body[1].y;
-      let serverDir = null;
-      if      (dx ===  1) serverDir = "RIGHT";
-      else if (dx === -1) serverDir = "LEFT";
-      else if (dy ===  1) serverDir = "DOWN";
-      else if (dy === -1) serverDir = "UP";
-
-      if (_localDir === null) _localDir = serverDir;
-
-      // Reconcile body from server — local loop and server run at the same
-      // rate with the same queue logic so they stay in sync
-      _localBody = me.body.map(b => ({ x: b.x, y: b.y }));
-
-      // Start local loop once we have a valid starting position
-      if (!_localLoop) {
-        _localLoop = setInterval(() => {
-          if (!_localBody || !_localDir) return;
-          // Process queued turn exactly as the server does: one per tick
-          if (_queuedDir && _queuedDir !== OPPOSITE[_localDir]) {
-            _localDir = _queuedDir;
-            _queuedDir = null;
-          }
-          const d = DELTA[_localDir];
-          const newHead = { x: _localBody[0].x + d.x, y: _localBody[0].y + d.y };
-          _localBody = [newHead, ..._localBody.slice(0, -1)];
-          if (_latestState) drawState(_latestState);
-        }, 120);
+    // Init _lastDir from first server state (picks up actual starting direction)
+    if (_lastDir === null) {
+      const me = state.snakes.find(s => s.id === _myId);
+      if (me && me.alive && me.body.length >= 2) {
+        const dx = me.body[0].x - me.body[1].x;
+        const dy = me.body[0].y - me.body[1].y;
+        if      (dx ===  1) _lastDir = "RIGHT";
+        else if (dx === -1) _lastDir = "LEFT";
+        else if (dy ===  1) _lastDir = "DOWN";
+        else if (dy === -1) _lastDir = "UP";
       }
-
-    } else if (me && !me.alive) {
-      _localBody = null;
     }
 
     drawState(state);
@@ -133,7 +105,6 @@ function initSnakeClient(socket, myId) {
 
 function cleanupGame() {
   if (_keyHandler) window.removeEventListener("keydown", _keyHandler);
-  if (_localLoop)  { clearInterval(_localLoop); _localLoop = null; }
 }
 
 function updateStatus(state) {
@@ -144,6 +115,7 @@ function updateStatus(state) {
 }
 
 function drawState(state) {
+  // Background
   _ctx.fillStyle = "#0f172a";
   _ctx.fillRect(0, 0, _canvas.width, _canvas.height);
 
@@ -151,17 +123,28 @@ function drawState(state) {
   _ctx.strokeStyle = "rgba(255,255,255,0.03)";
   _ctx.lineWidth = 0.5;
   for (let x = 0; x <= COLS; x++) {
-    _ctx.beginPath(); _ctx.moveTo(x * CELL, 0); _ctx.lineTo(x * CELL, _canvas.height); _ctx.stroke();
+    _ctx.beginPath();
+    _ctx.moveTo(x * CELL, 0);
+    _ctx.lineTo(x * CELL, _canvas.height);
+    _ctx.stroke();
   }
   for (let y = 0; y <= ROWS; y++) {
-    _ctx.beginPath(); _ctx.moveTo(0, y * CELL); _ctx.lineTo(_canvas.width, y * CELL); _ctx.stroke();
+    _ctx.beginPath();
+    _ctx.moveTo(0, y * CELL);
+    _ctx.lineTo(_canvas.width, y * CELL);
+    _ctx.stroke();
   }
 
   // Apples
   state.apples.forEach(a => {
     _ctx.fillStyle = a.type === "good" ? "#e63946" : "#c1121f";
     _ctx.beginPath();
-    _ctx.arc(a.x * CELL + CELL/2, a.y * CELL + CELL/2, CELL/2 - 2, 0, Math.PI * 2);
+    _ctx.arc(
+      a.x * CELL + CELL / 2,
+      a.y * CELL + CELL / 2,
+      CELL / 2 - 2,
+      0, Math.PI * 2
+    );
     _ctx.fill();
   });
 
@@ -172,36 +155,56 @@ function drawState(state) {
   [...dead, ...alive].forEach(snake => {
     const isMe   = snake.id === _myId;
     const isDead = !snake.alive;
-    const body   = (isMe && _localBody) ? _localBody : snake.body;
-
-    body.forEach((seg, i) => {
+    snake.body.forEach((seg, i) => {
       const isHead = i === 0;
+
       let color;
-      if (isDead)      color = "rgba(120,120,120,0.35)";
-      else if (isMe)   color = isHead ? lighten(snake.color, 40) : snake.color;
-      else             color = isHead ? snake.color : darken(snake.color, 20);
+      if (isDead) {
+        color = "rgba(120,120,120,0.35)";
+      } else if (isMe) {
+        color = isHead ? lighten(snake.color, 40) : snake.color;
+      } else {
+        color = isHead ? snake.color : darken(snake.color, 20);
+      }
 
       const padding = isHead ? 1 : 2;
       _ctx.fillStyle = color;
       _ctx.beginPath();
-      _ctx.roundRect(seg.x*CELL+padding, seg.y*CELL+padding, CELL-padding*2, CELL-padding*2, isHead ? 4 : 3);
+      _ctx.roundRect(
+        seg.x * CELL + padding,
+        seg.y * CELL + padding,
+        CELL - padding * 2,
+        CELL - padding * 2,
+        isHead ? 4 : 3
+      );
       _ctx.fill();
     });
 
-    if (body.length > 0) {
-      const head = body[0];
+    // Player name above head
+    if (snake.body.length > 0) {
+      const head = snake.body[0];
       _ctx.font = "bold 10px Nunito, sans-serif";
       _ctx.textAlign = "center";
       _ctx.fillStyle = isDead ? "rgba(120,120,120,0.5)" : (isMe ? "#fff" : "#ccc");
-      _ctx.fillText(snake.name, head.x*CELL + CELL/2, head.y*CELL - 3);
+      _ctx.fillText(
+        snake.name,
+        head.x * CELL + CELL / 2,
+        head.y * CELL - 3
+      );
     }
   });
 }
 
-function lighten(hex, amount) { return adjustColor(hex, amount); }
-function darken(hex, amount)  { return adjustColor(hex, -amount); }
+function lighten(hex, amount) {
+  return adjustColor(hex, amount);
+}
+
+function darken(hex, amount) {
+  return adjustColor(hex, -amount);
+}
+
 function adjustColor(hex, amount) {
-  const num = parseInt(hex.replace("#",""), 16);
+  const num = parseInt(hex.replace("#", ""), 16);
   const r = Math.min(255, Math.max(0, (num >> 16) + amount));
   const g = Math.min(255, Math.max(0, ((num >> 8) & 0xff) + amount));
   const b = Math.min(255, Math.max(0, (num & 0xff) + amount));
