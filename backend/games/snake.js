@@ -54,7 +54,8 @@ class SnakeGame {
           { x: start.x - (d === "RIGHT" ? 2 : d === "LEFT" ? -2 : 0), y: start.y - (d === "DOWN" ? 2 : d === "UP" ? -2 : 0) }
         ],
         alive: true,
-        score: 0
+        score: 0,
+        diedAt: null
       };
     });
 
@@ -159,13 +160,13 @@ class SnakeGame {
 
       // Wall
       if (head.x < 0 || head.x >= COLS || head.y < 0 || head.y >= ROWS) {
-        snake.alive = false;
+        snake.alive = false; snake.diedAt = this.tick;
         return;
       }
 
       // Self collision
       if (snake.body.some(b => b.x === head.x && b.y === head.y)) {
-        snake.alive = false;
+        snake.alive = false; snake.diedAt = this.tick;
         return;
       }
 
@@ -173,7 +174,7 @@ class SnakeGame {
       Object.values(this.snakes).forEach(other => {
         if (other.id === snake.id) return;
         if (other.body.some(b => b.x === head.x && b.y === head.y)) {
-          snake.alive = false;
+          snake.alive = false; snake.diedAt = this.tick;
         }
       });
     });
@@ -184,8 +185,8 @@ class SnakeGame {
         if (a.id !== b.id) {
           if (newHeads[a.id].x === newHeads[b.id].x &&
               newHeads[a.id].y === newHeads[b.id].y) {
-            a.alive = false;
-            b.alive = false;
+            a.alive = false; a.diedAt = this.tick;
+            b.alive = false; b.diedAt = this.tick;
           }
         }
       });
@@ -203,7 +204,7 @@ class SnakeGame {
         this.apples.splice(hitIdx, 1);
 
         if (hit.type === "bad") {
-          snake.alive = false;
+          snake.alive = false; snake.diedAt = this.tick;
           snake.body.shift();
           return;
         }
@@ -246,12 +247,15 @@ class SnakeGame {
 
   endGame() {
     this.stop();
-    const snakes  = Object.values(this.snakes);
-    const sorted  = [...snakes].sort((a, b) => {
-      if (a.alive !== b.alive) return a.alive ? -1 : 1;
-      return b.score - a.score;
+    const snakes = Object.values(this.snakes);
+
+    // Each snake scores: 1pt per apple + 5pts per snake they outlived
+    const scores = snakes.map(s => {
+      const outlived = snakes.filter(o => o.id !== s.id && !o.alive && (s.alive || s.diedAt > o.diedAt)).length;
+      return { name: s.name, score: s.score + outlived * 5 };
     });
-    const scores  = sorted.map((s, i) => ({ name: s.name, score: sorted.length - i }));
+
+    scores.sort((a, b) => b.score - a.score);
     console.log(`[Snake] Game over in room ${this.room.code}`);
     this.onEnd(scores);
   }
