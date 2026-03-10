@@ -176,10 +176,36 @@ frontend/lobby.js                ← optional
 
 ---
 
-## Deploy
+## Submitting your game
+
+When your game is ready, open a pull request to get it merged into the main repo.
+
+1. **Fork the repo** on GitHub (top-right "Fork" button on the repo page)
+2. **Clone your fork** locally and open it in Claude Code
+3. **Build the game** — give Claude Code this file and your game description
+4. **Push to your fork**:
+   ```bash
+   git add -A
+   git commit -m "Add [game name]"
+   git push
+   ```
+5. **Open a PR** on GitHub — go to your fork and click "Compare & pull request"
+
+In your PR description, include:
+- What the game is and how it works
+- How to win / how scoring works
+- Any known issues or limitations
+
+The repo owner will review it, and once merged they'll deploy it.
+
+---
+
+## Deploy (repo owners only)
 
 ```bash
 ./deploy.sh "Add [game name]"
 ```
+
+Render will pick it up in ~1 minute.
 
 Live in ~1 minute on Render.
