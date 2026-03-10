@@ -74,7 +74,7 @@ The round system takes it from there — it accumulates scores across rounds and
 - `start()` — begin the game
 - `stop()` — clean up (called when host clicks "End Game" or between rounds)
 - `setInput(socketId, data)` — called when a player sends input from their browser
-- `updatePlayerId(oldId, newId)` — called if a player reconnects (just remap your references)
+- `updatePlayerId(oldId, newId)` — called automatically by the platform if a player reconnects mid-game; update any internal references from `oldId` to `newId` so the player stays in the game
 
 ---
 
@@ -117,22 +117,28 @@ The more specific you are about the rules and visuals, the better the output.
 
 ---
 
-## Wiring it into the platform (7 small edits)
+## Wiring it into the platform
 
 Once you have the two game files, these edits connect them to the rest of the app. You can do these yourself or ask Claude Code in this repo to do them.
 
-**`backend/server.js`** — 3 edits:
+**`backend/server.js`** — this is the most involved step. Four things to do:
+
+1. Add at the top with the other requires:
 ```js
-// 1. Add at the top with the other requires:
 const MyGame = require("./games/mygame");
+```
 
-// 2. Add to validGames in the create-room handler:
+2. Add to `validGames` in the `create-room` handler:
+```js
 const validGames = ["snake", "mygame"];
+```
 
-// 3. Add a branch in start-game, after the snake line:
+3. Copy the entire `startSnakeRound` function, paste it below, rename it `startMygameRound`, and replace `SnakeGame` with `MyGame` and every `"snake"` string with `"mygame"`.
+
+4. Add a branch in `start-game`, after the snake line:
+```js
 if (r.game === "mygame") startMygameRound(r);
 ```
-Also copy the `startSnakeRound` function, rename it `startMygameRound`, and replace `SnakeGame` with `MyGame` and `"snake"` with `"mygame"`.
 
 **`frontend/game.html`** — add before `game.js`:
 ```html
@@ -207,5 +213,3 @@ The repo owner will review it, and once merged they'll deploy it.
 ```
 
 Render will pick it up in ~1 minute.
-
-Live in ~1 minute on Render.
