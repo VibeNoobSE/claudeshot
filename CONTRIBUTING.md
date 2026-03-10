@@ -128,9 +128,12 @@ Once you have the two game files, these edits connect them to the rest of the ap
 const MyGame = require("./games/mygame");
 ```
 
-2. Add to `validGames` in the `create-room` handler:
+2. Add to `GAME_REGISTRY` (this controls the player limit — the lobby enforces it automatically):
 ```js
-const validGames = ["snake", "mygame"];
+const GAME_REGISTRY = {
+  snake: { Game: SnakeGame, maxPlayers: 8 },
+  mygame: { Game: MyGame, maxPlayers: 4 }  // set your own limit here
+};
 ```
 
 3. Copy the entire `startSnakeRound` function, paste it below, rename it `startMygameRound`, and replace `SnakeGame` with `MyGame` and every `"snake"` string with `"mygame"`.
@@ -186,7 +189,7 @@ frontend/lobby.js                ← optional
 
 When your game is ready, open a pull request to get it merged into the main repo.
 
-1. **Fork the repo** on GitHub (top-right "Fork" button on the repo page)
+1. **Fork the repo** on GitHub: https://github.com/VibeNoobSE/claudeshot (top-right "Fork" button)
 2. **Clone your fork** locally and open it in Claude Code
 3. **Build the game** — give Claude Code this file and your game description
 4. **Push to your fork**:

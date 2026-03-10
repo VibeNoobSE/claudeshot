@@ -63,7 +63,7 @@ function renderGameSettings(game) {
 
 function renderRoom(room) {
   document.getElementById("room-code").textContent = room.code;
-  document.getElementById("player-count").textContent = room.players.length;
+  document.getElementById("player-count").textContent = `${room.players.length} / ${room.maxPlayers}`;
 
   const gameLabel = document.getElementById("game-label");
   if (gameLabel) gameLabel.textContent = GAME_NAMES[room.game] || room.game;

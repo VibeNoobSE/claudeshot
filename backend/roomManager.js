@@ -9,12 +9,13 @@ function generateCode() {
   return code;
 }
 
-function createRoom(hostId, hostName, game) {
+function createRoom(hostId, hostName, game, maxPlayers) {
   const code = generateCode();
   rooms.set(code, {
     code,
     host: hostId,
     game: game || "snake",
+    maxPlayers: maxPlayers || 8,
     players: [{ id: hostId, name: hostName }],
     gameStarted: false
   });
@@ -25,6 +26,7 @@ function joinRoom(code, playerId, playerName) {
   const room = rooms.get(code);
   if (!room) return { error: "Room not found." };
   if (room.gameStarted) return { error: "Game already in progress." };
+  if (room.players.length >= room.maxPlayers) return { error: "Room is full." };
   if (room.players.find((p) => p.id === playerId)) return room;
   room.players.push({ id: playerId, name: playerName });
   return room;

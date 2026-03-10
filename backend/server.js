@@ -6,6 +6,10 @@ const cors = require("cors");
 const { createRoom, joinRoom, rejoinRoom, leaveRoom, getRooms } = require("./roomManager");
 const SnakeGame = require("./games/snake");
 
+const GAME_REGISTRY = {
+  snake: { Game: SnakeGame, maxPlayers: 8 }
+};
+
 const app = express();
 const server = http.createServer(app);
 
@@ -77,9 +81,10 @@ io.on("connection", (socket) => {
       socket.emit("error", "Name is required.");
       return;
     }
-    const validGames = ["snake"];
+    const validGames = Object.keys(GAME_REGISTRY);
     const selectedGame = validGames.includes(game) ? game : "snake";
-    const room = createRoom(socket.id, name.trim(), selectedGame);
+    const maxPlayers = GAME_REGISTRY[selectedGame].maxPlayers;
+    const room = createRoom(socket.id, name.trim(), selectedGame, maxPlayers);
     socket.join(room.code);
     socket.emit("room-joined", room);
     console.log(`Room ${room.code} created by ${name} (game: ${selectedGame})`);
