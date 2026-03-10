@@ -5,9 +5,11 @@ const { Server } = require("socket.io");
 const cors = require("cors");
 const { createRoom, joinRoom, rejoinRoom, leaveRoom, getRooms } = require("./roomManager");
 const SnakeGame = require("./games/snake");
+const HungryGame = require("./games/hungry");
 
 const GAME_REGISTRY = {
-  snake: { Game: SnakeGame, maxPlayers: 8 }
+  snake: { Game: SnakeGame, maxPlayers: 8 },
+  hungry: { Game: HungryGame, maxPlayers: 8 },
 };
 
 const app = express();
@@ -33,12 +35,15 @@ const activeGames = {};
 // Round tracking keyed by room code
 const activeRounds = {};
 
-function startSnakeRound(r) {
+function startGameRound(r) {
   const round = activeRounds[r.code];
-  r.gameStarted = true;
-  io.to(r.code).emit("game-started", { game: "snake", round: round.current, totalRounds: round.total });
+  const registry = GAME_REGISTRY[r.game];
+  if (!registry) return;
 
-  const game = new SnakeGame(r, io, (roundScores) => {
+  r.gameStarted = true;
+  io.to(r.code).emit("game-started", { game: r.game, round: round.current, totalRounds: round.total });
+
+  const game = new registry.Game(r, io, (roundScores) => {
     delete activeGames[r.code];
     r.gameStarted = false;
 
@@ -63,14 +68,14 @@ function startSnakeRound(r) {
       });
       round.current++;
       setTimeout(() => {
-        if (getRooms().has(r.code)) startSnakeRound(r);
+        if (getRooms().has(r.code)) startGameRound(r);
       }, 7000);
     }
   });
 
   activeGames[r.code] = game;
   game.start();
-  console.log(`Snake round ${round.current}/${round.total} started in room ${r.code}`);
+  console.log(`${r.game} round ${round.current}/${round.total} started in room ${r.code}`);
 }
 
 io.on("connection", (socket) => {
@@ -137,7 +142,7 @@ io.on("connection", (socket) => {
       return;
     }
 
-    // Update snake game if active
+    // Update active game if player reconnects
     if (oldId && oldId !== socket.id && activeGames[upperCode]) {
       activeGames[upperCode].updatePlayerId(oldId, socket.id);
     }
@@ -153,7 +158,7 @@ io.on("connection", (socket) => {
       if (r.host === socket.id) {
         const total = Math.min(5, Math.max(1, parseInt(rounds) || 1));
         activeRounds[r.code] = { current: 1, total, totalScores: {} };
-        if (r.game === "snake") startSnakeRound(r);
+        startGameRound(r);
         return;
       }
     }
@@ -162,8 +167,14 @@ io.on("connection", (socket) => {
   socket.on("snake-input", ({ dir }) => {
     const validDirs = ["UP", "DOWN", "LEFT", "RIGHT"];
     if (!validDirs.includes(dir)) return;
-    for (const [code, game] of Object.entries(activeGames)) {
+    for (const [, game] of Object.entries(activeGames)) {
       game.setInput(socket.id, dir);
+    }
+  });
+
+  socket.on("hungry-input", (data) => {
+    for (const [, game] of Object.entries(activeGames)) {
+      game.setInput(socket.id, data);
     }
   });
 

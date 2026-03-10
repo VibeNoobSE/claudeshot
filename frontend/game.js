@@ -32,12 +32,12 @@ socket.on("game-started", ({ game: g, round, totalRounds }) => {
 });
 
 socket.on("round-ended", ({ round, totalRounds, roundScores, totalScores }) => {
-  if (typeof cleanupGame === "function") cleanupGame();
+  cleanupAllGames();
   showRoundOverlay(round, totalRounds, roundScores, totalScores);
 });
 
 socket.on("game-ended", ({ scores }) => {
-  if (typeof cleanupGame === "function") cleanupGame();
+  cleanupAllGames();
   sessionStorage.setItem("scores", JSON.stringify(scores || []));
   window.location.href = "results.html";
 });
@@ -47,13 +47,18 @@ socket.on("kicked", () => {
   window.location.href = "index.html";
 });
 
+function cleanupAllGames() {
+  if (typeof cleanupGame === "function") cleanupGame();           // snake
+  if (typeof cleanupHungryClient === "function") cleanupHungryClient();
+}
+
 function initGame(room) {
+  cleanupAllGames();
   const isHost = room.host === socket.id;
   document.getElementById("host-end-controls").classList.toggle("hidden", !isHost);
 
-  if (room.game === "snake") {
-    initSnakeClient(socket, socket.id, room);
-  }
+  if (room.game === "snake")  initSnakeClient(socket, socket.id, room);
+  if (room.game === "hungry") initHungryClient(socket, socket.id, room);
 }
 
 let roundOverlayTimer = null;

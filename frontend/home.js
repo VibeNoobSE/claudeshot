@@ -30,6 +30,7 @@ document.querySelectorAll(".game-card:not(:disabled)").forEach(card => {
   });
 });
 
+
 createBtn.addEventListener("click", () => {
   clearError();
   const name = getName();
