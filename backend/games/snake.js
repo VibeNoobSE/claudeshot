@@ -38,6 +38,7 @@ class SnakeGame {
     this.apples = [];
     this.badAppleTimers = [];
     this.interval = null;
+    this.stopped = false;
 
     room.players.forEach((p, i) => {
       const start = START_POSITIONS[i % START_POSITIONS.length];
@@ -77,8 +78,10 @@ class SnakeGame {
   }
 
   scheduleRandomBadApple() {
+    if (this.stopped) return;
     const delay = 2000 + Math.random() * 4000;
     const t = setTimeout(() => {
+      if (this.stopped) return;
       this.spawnBadApple();
       this.scheduleRandomBadApple();
     }, delay);
@@ -86,8 +89,10 @@ class SnakeGame {
   }
 
   stop() {
+    this.stopped = true;
     clearInterval(this.interval);
     this.badAppleTimers.forEach(t => clearTimeout(t));
+    this.badAppleTimers = [];
   }
 
   updatePlayerId(oldId, newId) {

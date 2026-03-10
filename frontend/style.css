@@ -341,8 +341,8 @@ input::placeholder {
   font-weight: 900;
 }
 
-/* ─── Game card ─────────────────────────────────────────── */
-.game-card {
+/* ─── Game area card ────────────────────────────────────── */
+.game-area-card {
   min-height: 300px;
   display: flex;
   flex-direction: column;

@@ -56,6 +56,8 @@ function initGame(room) {
   }
 }
 
+let roundOverlayTimer = null;
+
 function showRoundOverlay(round, totalRounds, roundScores, totalScores) {
   const overlay  = document.getElementById("round-overlay");
   const title    = document.getElementById("round-overlay-title");
@@ -64,17 +66,26 @@ function showRoundOverlay(round, totalRounds, roundScores, totalScores) {
 
   title.textContent = `Round ${round} complete`;
 
-  list.innerHTML = totalScores.map((s, i) =>
-    `<li style="display:flex;justify-content:space-between;gap:1.5rem;padding:0.2rem 0;color:${s.name === myName ? "#f7c948" : "#e2e8f0"};">
-      <span>${i + 1}. ${s.name}</span><span style="font-weight:800;">${s.score} pts</span>
-    </li>`
-  ).join("");
+  list.innerHTML = "";
+  totalScores.forEach((s, i) => {
+    const li = document.createElement("li");
+    li.style.cssText = "display:flex;justify-content:space-between;gap:1.5rem;padding:0.2rem 0;";
+    li.style.color = s.name === myName ? "#f7c948" : "#e2e8f0";
+    const nameSpan = document.createElement("span");
+    nameSpan.textContent = `${i + 1}. ${s.name}`;
+    const ptsSpan = document.createElement("span");
+    ptsSpan.style.fontWeight = "800";
+    ptsSpan.textContent = `${s.score} pts`;
+    li.append(nameSpan, ptsSpan);
+    list.appendChild(li);
+  });
 
+  if (roundOverlayTimer) clearInterval(roundOverlayTimer);
   let secs = 7;
   nextLine.textContent = `Next round in ${secs}s…`;
-  const timer = setInterval(() => {
+  roundOverlayTimer = setInterval(() => {
     secs--;
-    if (secs <= 0) { clearInterval(timer); nextLine.textContent = ""; }
+    if (secs <= 0) { clearInterval(roundOverlayTimer); roundOverlayTimer = null; nextLine.textContent = ""; }
     else nextLine.textContent = `Next round in ${secs}s…`;
   }, 1000);
 

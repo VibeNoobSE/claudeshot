@@ -48,7 +48,16 @@ function renderScoreboard(scores, room) {
   sorted.forEach((entry, i) => {
     const li = document.createElement("li");
     li.className = "score-item" + (entry.name === myName ? " me" : "");
-    li.innerHTML = `<span class="score-rank">${i + 1}.</span> <span class="score-name">${entry.name}</span> <span class="score-points">${entry.score} pts</span>`;
+    const rank = document.createElement("span");
+    rank.className = "score-rank";
+    rank.textContent = `${i + 1}.`;
+    const name = document.createElement("span");
+    name.className = "score-name";
+    name.textContent = entry.name;
+    const pts = document.createElement("span");
+    pts.className = "score-points";
+    pts.textContent = `${entry.score} pts`;
+    li.append(rank, name, pts);
     list.appendChild(li);
   });
 }

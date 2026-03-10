@@ -81,6 +81,10 @@ io.on("connection", (socket) => {
       socket.emit("error", "Name is required.");
       return;
     }
+    if (name.trim().length > 20) {
+      socket.emit("error", "Name must be 20 characters or less.");
+      return;
+    }
     const validGames = Object.keys(GAME_REGISTRY);
     const selectedGame = validGames.includes(game) ? game : "snake";
     const maxPlayers = GAME_REGISTRY[selectedGame].maxPlayers;
@@ -93,6 +97,10 @@ io.on("connection", (socket) => {
   socket.on("join-room", ({ code, name }) => {
     if (!name || !name.trim()) {
       socket.emit("error", "Name is required.");
+      return;
+    }
+    if (name.trim().length > 20) {
+      socket.emit("error", "Name must be 20 characters or less.");
       return;
     }
     if (!code || !code.trim()) {
