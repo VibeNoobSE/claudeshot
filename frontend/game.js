@@ -49,10 +49,6 @@ socket.on("kicked", () => {
 
 function cleanupAllGames() {
   if (typeof cleanupGame === "function") cleanupGame();           // snake
-  if (typeof cleanupPaintClient === "function") cleanupPaintClient();
-  if (typeof cleanupRoyaleClient === "function") cleanupRoyaleClient();
-  if (typeof cleanupTypingClient === "function") cleanupTypingClient();
-  if (typeof cleanupFlappyClient === "function") cleanupFlappyClient();
   if (typeof cleanupHungryClient === "function") cleanupHungryClient();
 }
 
@@ -62,10 +58,6 @@ function initGame(room) {
   document.getElementById("host-end-controls").classList.toggle("hidden", !isHost);
 
   if (room.game === "snake")  initSnakeClient(socket, socket.id, room);
-  if (room.game === "paint")  initPaintClient(socket, socket.id, room);
-  if (room.game === "royale") initRoyaleClient(socket, socket.id, room);
-  if (room.game === "typing") initTypingClient(socket, socket.id, room);
-  if (room.game === "flappy") initFlappyClient(socket, socket.id, room);
   if (room.game === "hungry") initHungryClient(socket, socket.id, room);
 }
 

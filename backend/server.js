@@ -5,18 +5,10 @@ const { Server } = require("socket.io");
 const cors = require("cors");
 const { createRoom, joinRoom, rejoinRoom, leaveRoom, getRooms } = require("./roomManager");
 const SnakeGame = require("./games/snake");
-const PaintGame = require("./games/paint");
-const RoyaleGame = require("./games/royale");
-const TypingGame = require("./games/typing");
-const FlappyGame = require("./games/flappy");
 const HungryGame = require("./games/hungry");
 
 const GAME_REGISTRY = {
   snake: { Game: SnakeGame, maxPlayers: 8 },
-  paint: { Game: PaintGame, maxPlayers: 8 },
-  royale: { Game: RoyaleGame, maxPlayers: 8 },
-  typing: { Game: TypingGame, maxPlayers: 8 },
-  flappy: { Game: FlappyGame, maxPlayers: 8 },
   hungry: { Game: HungryGame, maxPlayers: 8 },
 };
 
@@ -169,30 +161,6 @@ io.on("connection", (socket) => {
     if (!validDirs.includes(dir)) return;
     for (const [, game] of Object.entries(activeGames)) {
       game.setInput(socket.id, dir);
-    }
-  });
-
-  socket.on("paint-input", (data) => {
-    for (const [, game] of Object.entries(activeGames)) {
-      game.setInput(socket.id, data);
-    }
-  });
-
-  socket.on("royale-input", (data) => {
-    for (const [, game] of Object.entries(activeGames)) {
-      game.setInput(socket.id, data);
-    }
-  });
-
-  socket.on("typing-input", (data) => {
-    for (const [, game] of Object.entries(activeGames)) {
-      game.setInput(socket.id, data);
-    }
-  });
-
-  socket.on("flappy-input", (data) => {
-    for (const [, game] of Object.entries(activeGames)) {
-      game.setInput(socket.id, data);
     }
   });
 
