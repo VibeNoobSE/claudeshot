@@ -421,5 +421,59 @@ input::placeholder {
   color: #1a1a2e;
 }
 
+/* ─── Showcase link ─────────────────────────────────────── */
+.showcase-link {
+  display: block;
+  padding: 0.7rem 1rem;
+  background: rgba(247,201,72,0.06);
+  border: 1px solid rgba(247,201,72,0.2);
+  border-radius: 8px;
+  color: var(--yellow);
+  font-weight: 800;
+  font-size: 0.9rem;
+  text-decoration: none;
+  text-align: center;
+  transition: background 0.15s, border-color 0.15s;
+}
+.showcase-link:hover {
+  background: rgba(247,201,72,0.12);
+  border-color: var(--yellow);
+}
+.showcase-hint {
+  color: var(--muted);
+  font-size: 0.75rem;
+  text-align: center;
+  margin-top: 0.4rem;
+}
+
+/* ─── Discover button ──────────────────────────────────── */
+.btn-discover {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.5rem;
+  background: transparent;
+  border: 1px dashed rgba(255,255,255,0.15);
+  border-radius: 8px;
+  color: var(--muted);
+  font-family: inherit;
+  font-size: 0.82rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: border-color 0.2s, color 0.2s, background 0.2s;
+}
+.btn-discover:hover {
+  border-color: var(--yellow);
+  color: var(--yellow);
+  background: rgba(247,201,72,0.04);
+}
+.btn-discover.open {
+  border-style: solid;
+  border-color: rgba(255,255,255,0.1);
+  color: var(--muted);
+}
+
 /* ─── Utilities ─────────────────────────────────────────── */
 .hidden { display: none; }

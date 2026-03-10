@@ -1,0 +1,751 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Phaser Game Showcase</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #1a1a2e;
+      font-family: 'Nunito', sans-serif;
+      color: #fff;
+      min-height: 100vh;
+    }
+    header {
+      text-align: center;
+      padding: 18px 10px 10px;
+    }
+    header h1 { color: #f7c948; font-size: 22px; }
+    header p { color: #888; font-size: 13px; margin-top: 4px; }
+
+    #game-picker {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 8px;
+      padding: 10px 20px;
+    }
+    .pick-btn {
+      background: #16213e;
+      border: 2px solid #2a3a5e;
+      color: #ccc;
+      padding: 8px 16px;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 14px;
+      transition: all 0.15s;
+    }
+    .pick-btn:hover { border-color: #f7c948; color: #f7c948; }
+    .pick-btn.active { border-color: #f7c948; color: #f7c948; background: #1a2a4e; }
+
+    #game-container {
+      display: flex;
+      justify-content: center;
+      padding: 10px;
+    }
+    #game-info {
+      text-align: center;
+      padding: 4px;
+      color: #aaa;
+      font-size: 13px;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Phaser Classic Games Showcase</h1>
+    <p>Pick a game below — each one is ~80 lines of Phaser code. All candidates for Claudeshot multiplayer.</p>
+  </header>
+
+  <div id="game-picker"></div>
+  <div id="game-info"></div>
+  <div id="game-container"></div>
+
+  <script src="https://cdn.jsdelivr.net/npm/phaser@3.80.1/dist/phaser.min.js"></script>
+  <script>
+    const W = 800, H = 500;
+    let currentGame = null;
+
+    // ════════════════════════════════════════════════════
+    // GAME CATALOGUE
+    // ════════════════════════════════════════════════════
+
+    const GAMES = {
+
+      // ── 1. PONG ──────────────────────────────────────
+      pong: {
+        name: "🏓 Pong",
+        controls: "W/S = left paddle, ↑/↓ = right paddle",
+        multiplayer: "2 players, 1v1 — natural fit",
+        scene: class extends Phaser.Scene {
+          create() {
+            this.cameras.main.setBackgroundColor("#0a0a1e");
+            // Dashed center line
+            for (let y = 10; y < H; y += 24) {
+              this.add.rectangle(W/2, y, 2, 12, 0x333355);
+            }
+            this.paddleL = this.add.rectangle(30, H/2, 12, 80, 0xf7c948);
+            this.paddleR = this.add.rectangle(W-30, H/2, 12, 80, 0xe94560);
+            this.physics.add.existing(this.paddleL, false);
+            this.physics.add.existing(this.paddleR, false);
+            [this.paddleL, this.paddleR].forEach(p => {
+              p.body.setImmovable(true);
+              p.body.setCollideWorldBounds(true);
+            });
+
+            this.ball = this.add.circle(W/2, H/2, 8, 0xffffff);
+            this.physics.add.existing(this.ball);
+            this.ball.body.setBounce(1, 1);
+            this.ball.body.setCollideWorldBounds(true);
+            this.ball.body.onWorldBounds = true;
+            this.ball.body.setVelocity(280, Phaser.Math.Between(-150, 150));
+            this.ball.body.setMaxVelocity(500, 500);
+
+            this.physics.add.collider(this.ball, this.paddleL, this.hitPaddle, null, this);
+            this.physics.add.collider(this.ball, this.paddleR, this.hitPaddle, null, this);
+
+            this.scoreL = 0; this.scoreR = 0;
+            this.scoreTxt = this.add.text(W/2, 30, "0 — 0", {
+              fontSize: "32px", color: "#fff", fontFamily: "monospace"
+            }).setOrigin(0.5);
+
+            this.keys = this.input.keyboard.addKeys({
+              w: Phaser.Input.Keyboard.KeyCodes.W,
+              s: Phaser.Input.Keyboard.KeyCodes.S,
+              up: Phaser.Input.Keyboard.KeyCodes.UP,
+              down: Phaser.Input.Keyboard.KeyCodes.DOWN,
+            });
+
+            this.physics.world.on("worldbounds", (body, up, down, left, right) => {
+              if (left) { this.scoreR++; this.resetBall(1); }
+              if (right) { this.scoreL++; this.resetBall(-1); }
+              this.scoreTxt.setText(this.scoreL + " — " + this.scoreR);
+            });
+          }
+          resetBall(dir) {
+            this.ball.setPosition(W/2, H/2);
+            this.ball.body.setVelocity(280 * dir, Phaser.Math.Between(-150, 150));
+          }
+          hitPaddle(ball, paddle) {
+            const diff = ball.y - paddle.y;
+            ball.body.setVelocityY(diff * 5);
+            ball.body.setVelocityX(ball.body.velocity.x * 1.05);
+          }
+          update() {
+            const sp = 350;
+            this.paddleL.body.setVelocityY(0);
+            this.paddleR.body.setVelocityY(0);
+            if (this.keys.w.isDown) this.paddleL.body.setVelocityY(-sp);
+            if (this.keys.s.isDown) this.paddleL.body.setVelocityY(sp);
+            if (this.keys.up.isDown) this.paddleR.body.setVelocityY(-sp);
+            if (this.keys.down.isDown) this.paddleR.body.setVelocityY(sp);
+          }
+        }
+      },
+
+      // ── 2. BREAKOUT ─────────────────────────────────
+      breakout: {
+        name: "🧱 Breakout",
+        controls: "← → arrow keys to move paddle",
+        multiplayer: "Competitive — who clears their bricks fastest, or co-op with shared ball",
+        scene: class extends Phaser.Scene {
+          create() {
+            this.cameras.main.setBackgroundColor("#0a0a1e");
+            const colors = [0xe94560, 0xf7c948, 0x4ecca3, 0x5dade2, 0xaf7ac5];
+            this.bricks = this.physics.add.staticGroup();
+            for (let row = 0; row < 5; row++) {
+              for (let col = 0; col < 12; col++) {
+                const b = this.add.rectangle(80 + col * 55, 60 + row * 28, 50, 22, colors[row]);
+                this.bricks.add(b);
+              }
+            }
+            this.paddle = this.add.rectangle(W/2, H - 40, 100, 14, 0xf7c948);
+            this.physics.add.existing(this.paddle, false);
+            this.paddle.body.setImmovable(true);
+            this.paddle.body.setCollideWorldBounds(true);
+
+            this.ball = this.add.circle(W/2, H - 60, 7, 0xffffff);
+            this.physics.add.existing(this.ball);
+            this.ball.body.setBounce(1, 1);
+            this.ball.body.setCollideWorldBounds(true);
+            this.ball.body.setVelocity(200, -280);
+
+            this.physics.add.collider(this.ball, this.paddle, (ball) => {
+              const diff = ball.x - this.paddle.x;
+              ball.body.setVelocityX(diff * 5);
+            });
+            this.physics.add.collider(this.ball, this.bricks, (ball, brick) => {
+              brick.destroy();
+              this.score++;
+              this.scoreTxt.setText("Bricks: " + this.score);
+            });
+
+            this.score = 0;
+            this.scoreTxt = this.add.text(16, H - 24, "Bricks: 0", {
+              fontSize: "16px", color: "#f7c948", fontFamily: "monospace"
+            });
+
+            this.cursors = this.input.keyboard.createCursorKeys();
+          }
+          update() {
+            this.paddle.body.setVelocityX(0);
+            if (this.cursors.left.isDown) this.paddle.body.setVelocityX(-400);
+            if (this.cursors.right.isDown) this.paddle.body.setVelocityX(400);
+            // Reset if ball falls below paddle
+            if (this.ball.y > H - 10) {
+              this.ball.setPosition(W/2, H - 60);
+              this.ball.body.setVelocity(200, -280);
+            }
+          }
+        }
+      },
+
+      // ── 3. ASTEROIDS ────────────────────────────────
+      asteroids: {
+        name: "☄️ Asteroids",
+        controls: "← → rotate, ↑ thrust, SPACE shoot",
+        multiplayer: "Free-for-all — survive longest or most kills",
+        scene: class extends Phaser.Scene {
+          create() {
+            this.cameras.main.setBackgroundColor("#0a0a1e");
+            // Stars
+            for (let i = 0; i < 80; i++) {
+              this.add.circle(
+                Phaser.Math.Between(0, W), Phaser.Math.Between(0, H),
+                Phaser.Math.Between(1, 2), 0x334466
+              );
+            }
+            // Ship as triangle
+            const g = this.make.graphics({ add: false });
+            g.fillStyle(0xf7c948);
+            g.fillTriangle(0, -16, -10, 12, 10, 12);
+            g.generateTexture("ship", 20, 28);
+            g.destroy();
+
+            this.ship = this.physics.add.sprite(W/2, H/2, "ship");
+            this.ship.setDamping(true);
+            this.ship.setDrag(0.97);
+            this.ship.setMaxVelocity(300);
+            this.ship.body.setCollideWorldBounds(false);
+
+            this.bullets = this.physics.add.group();
+            this.asteroids = this.physics.add.group();
+            this.score = 0;
+            this.scoreTxt = this.add.text(16, 16, "Score: 0", {
+              fontSize: "18px", color: "#f7c948", fontFamily: "monospace"
+            });
+
+            for (let i = 0; i < 6; i++) this.spawnAsteroid();
+
+            this.physics.add.overlap(this.bullets, this.asteroids, (bullet, ast) => {
+              bullet.destroy();
+              const size = ast.getData("size");
+              const x = ast.x, y = ast.y;
+              ast.destroy();
+              this.score += (4 - size) * 10;
+              this.scoreTxt.setText("Score: " + this.score);
+              if (size > 1) {
+                this.spawnAsteroid(size - 1, x - 20, y);
+                this.spawnAsteroid(size - 1, x + 20, y);
+              }
+            });
+
+            this.physics.add.overlap(this.ship, this.asteroids, () => {
+              this.ship.setPosition(W/2, H/2);
+              this.ship.body.setVelocity(0, 0);
+            });
+
+            this.cursors = this.input.keyboard.createCursorKeys();
+            this.spaceKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE);
+            this.lastShot = 0;
+          }
+          spawnAsteroid(size, x, y) {
+            size = size || 3;
+            x = x ?? Phaser.Math.Between(0, W);
+            y = y ?? Phaser.Math.Between(0, H);
+            const r = size * 14;
+            const g = this.make.graphics({ add: false });
+            g.lineStyle(2, 0x888888);
+            g.strokeCircle(r, r, r);
+            g.generateTexture("ast" + size, r * 2, r * 2);
+            g.destroy();
+            const a = this.asteroids.create(x, y, "ast" + size);
+            a.setData("size", size);
+            a.body.setVelocity(
+              Phaser.Math.Between(-100, 100),
+              Phaser.Math.Between(-100, 100)
+            );
+            a.body.setCollideWorldBounds(false);
+          }
+          update(time) {
+            if (this.cursors.left.isDown) this.ship.setAngularVelocity(-200);
+            else if (this.cursors.right.isDown) this.ship.setAngularVelocity(200);
+            else this.ship.setAngularVelocity(0);
+
+            if (this.cursors.up.isDown) {
+              this.physics.velocityFromRotation(
+                this.ship.rotation - Math.PI / 2, 300, this.ship.body.acceleration
+              );
+            } else {
+              this.ship.setAcceleration(0);
+            }
+
+            // Wrap around screen
+            if (this.ship.x < 0) this.ship.x = W;
+            if (this.ship.x > W) this.ship.x = 0;
+            if (this.ship.y < 0) this.ship.y = H;
+            if (this.ship.y > H) this.ship.y = 0;
+
+            this.asteroids.getChildren().forEach(a => {
+              if (a.x < -50) a.x = W + 40;
+              if (a.x > W + 50) a.x = -40;
+              if (a.y < -50) a.y = H + 40;
+              if (a.y > H + 50) a.y = -40;
+            });
+
+            // Shoot
+            if (this.spaceKey.isDown && time > this.lastShot + 200) {
+              this.lastShot = time;
+              const b = this.add.circle(0, 0, 3, 0xffffff);
+              this.bullets.add(b);
+              this.physics.add.existing(b);
+              b.setPosition(this.ship.x, this.ship.y);
+              this.physics.velocityFromRotation(
+                this.ship.rotation - Math.PI / 2, 500, b.body.velocity
+              );
+              this.time.delayedCall(1500, () => b.destroy());
+            }
+
+            if (this.asteroids.countActive() === 0) {
+              for (let i = 0; i < 6; i++) this.spawnAsteroid();
+            }
+          }
+        }
+      },
+
+      // ── 4. PLATFORMER ───────────────────────────────
+      platformer: {
+        name: "🏃 Platformer",
+        controls: "← → move, ↑ jump",
+        multiplayer: "Race to collect coins or reach the top first",
+        scene: class extends Phaser.Scene {
+          create() {
+            this.cameras.main.setBackgroundColor("#16213e");
+            this.platforms = this.physics.add.staticGroup();
+            // Ground
+            this.platforms.add(this.add.rectangle(W/2, H - 10, W, 20, 0x2a3a5e));
+            // Platforms
+            const plats = [
+              [150, 400], [400, 350], [650, 300], [250, 240],
+              [500, 190], [100, 140], [650, 100], [380, 60]
+            ];
+            plats.forEach(([x, y]) => {
+              this.platforms.add(this.add.rectangle(x, y, 120, 14, 0x2a3a5e));
+            });
+
+            // Player
+            this.player = this.add.rectangle(100, H - 40, 24, 32, 0xf7c948);
+            this.physics.add.existing(this.player);
+            this.player.body.setCollideWorldBounds(true);
+            this.player.body.setGravityY(600);
+            this.physics.add.collider(this.player, this.platforms);
+
+            // Coins
+            this.coins = this.physics.add.group();
+            this.score = 0;
+            for (let i = 0; i < 10; i++) {
+              const cx = Phaser.Math.Between(50, W - 50);
+              const cy = Phaser.Math.Between(30, H - 80);
+              const c = this.add.circle(cx, cy, 8, 0xe94560);
+              this.coins.add(c);
+              this.physics.add.existing(c, true);
+            }
+            this.physics.add.overlap(this.player, this.coins, (p, c) => {
+              c.destroy();
+              this.score++;
+              this.scoreTxt.setText("Coins: " + this.score + "/10");
+              if (this.score >= 10) {
+                this.add.text(W/2, H/2, "YOU WIN!", {
+                  fontSize: "48px", color: "#f7c948", fontFamily: "monospace"
+                }).setOrigin(0.5);
+              }
+            });
+
+            this.scoreTxt = this.add.text(16, 16, "Coins: 0/10", {
+              fontSize: "18px", color: "#f7c948", fontFamily: "monospace"
+            });
+            this.cursors = this.input.keyboard.createCursorKeys();
+          }
+          update() {
+            const p = this.player;
+            p.body.setVelocityX(0);
+            if (this.cursors.left.isDown) p.body.setVelocityX(-220);
+            if (this.cursors.right.isDown) p.body.setVelocityX(220);
+            if (this.cursors.up.isDown && p.body.touching.down) {
+              p.body.setVelocityY(-450);
+            }
+          }
+        }
+      },
+
+      // ── 5. SPACE INVADERS ───────────────────────────
+      invaders: {
+        name: "👾 Invaders",
+        controls: "← → move, SPACE shoot",
+        multiplayer: "Co-op defense or competitive score race",
+        scene: class extends Phaser.Scene {
+          create() {
+            this.cameras.main.setBackgroundColor("#0a0a1e");
+            // Ship
+            this.ship = this.add.rectangle(W/2, H - 30, 40, 16, 0x4ecca3);
+            this.physics.add.existing(this.ship);
+            this.ship.body.setCollideWorldBounds(true);
+
+            // Invaders
+            this.invaders = this.physics.add.group();
+            const colors = [0xe94560, 0xf7c948, 0xaf7ac5, 0x5dade2];
+            for (let row = 0; row < 4; row++) {
+              for (let col = 0; col < 10; col++) {
+                const inv = this.add.rectangle(
+                  120 + col * 58, 50 + row * 40, 36, 20, colors[row]
+                );
+                this.invaders.add(inv);
+                this.physics.add.existing(inv);
+              }
+            }
+            this.invDir = 1;
+            this.invSpeed = 30;
+            this.invTick = 0;
+
+            // Bullets
+            this.bullets = this.physics.add.group();
+            this.score = 0;
+            this.scoreTxt = this.add.text(16, 16, "Score: 0", {
+              fontSize: "18px", color: "#4ecca3", fontFamily: "monospace"
+            });
+
+            this.physics.add.overlap(this.bullets, this.invaders, (b, inv) => {
+              b.destroy();
+              inv.destroy();
+              this.score += 10;
+              this.scoreTxt.setText("Score: " + this.score);
+              if (this.invaders.countActive() === 0) {
+                this.add.text(W/2, H/2, "VICTORY!", {
+                  fontSize: "48px", color: "#4ecca3", fontFamily: "monospace"
+                }).setOrigin(0.5);
+              }
+            });
+
+            this.cursors = this.input.keyboard.createCursorKeys();
+            this.spaceKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE);
+            this.lastShot = 0;
+          }
+          update(time) {
+            this.ship.body.setVelocityX(0);
+            if (this.cursors.left.isDown) this.ship.body.setVelocityX(-300);
+            if (this.cursors.right.isDown) this.ship.body.setVelocityX(300);
+
+            if (this.spaceKey.isDown && time > this.lastShot + 300) {
+              this.lastShot = time;
+              const b = this.add.rectangle(this.ship.x, this.ship.y - 16, 4, 12, 0x4ecca3);
+              this.bullets.add(b);
+              this.physics.add.existing(b);
+              b.body.setVelocityY(-400);
+              this.time.delayedCall(2000, () => b.destroy());
+            }
+
+            // Move invaders
+            this.invTick++;
+            if (this.invTick % 30 === 0) {
+              let edgeHit = false;
+              this.invaders.getChildren().forEach(inv => {
+                if (inv.active) {
+                  inv.x += this.invDir * 16;
+                  if (inv.x > W - 30 || inv.x < 30) edgeHit = true;
+                }
+              });
+              if (edgeHit) {
+                this.invDir *= -1;
+                this.invaders.getChildren().forEach(inv => {
+                  if (inv.active) inv.y += 20;
+                });
+              }
+            }
+          }
+        }
+      },
+
+      // ── 6. FLAPPY ───────────────────────────────────
+      flappy: {
+        name: "🐦 Flappy",
+        controls: "SPACE or ↑ to flap",
+        multiplayer: "Survival — last player alive wins",
+        scene: class extends Phaser.Scene {
+          create() {
+            this.cameras.main.setBackgroundColor("#1a3a5e");
+            this.bird = this.add.circle(120, H/2, 14, 0xf7c948);
+            this.physics.add.existing(this.bird);
+            this.bird.body.setGravityY(800);
+            this.bird.body.setCollideWorldBounds(true);
+
+            this.pipes = this.physics.add.group();
+            this.score = 0;
+            this.alive = true;
+            this.scoreTxt = this.add.text(W/2, 30, "0", {
+              fontSize: "36px", color: "#fff", fontFamily: "monospace"
+            }).setOrigin(0.5);
+
+            this.pipeTimer = this.time.addEvent({
+              delay: 1800,
+              callback: this.addPipes,
+              callbackScope: this,
+              loop: true,
+            });
+
+            this.input.keyboard.on("keydown-SPACE", () => this.flap());
+            this.input.keyboard.on("keydown-UP", () => this.flap());
+
+            this.physics.add.overlap(this.bird, this.pipes, () => {
+              if (this.alive) {
+                this.alive = false;
+                this.physics.pause();
+                this.add.text(W/2, H/2, "GAME OVER", {
+                  fontSize: "40px", color: "#e94560", fontFamily: "monospace"
+                }).setOrigin(0.5);
+              }
+            });
+          }
+          flap() {
+            if (this.alive) this.bird.body.setVelocityY(-320);
+          }
+          addPipes() {
+            if (!this.alive) return;
+            const gap = 140;
+            const gapY = Phaser.Math.Between(80, H - 80 - gap);
+            // Top pipe
+            const top = this.add.rectangle(W + 30, gapY / 2, 52, gapY, 0x4ecca3);
+            this.pipes.add(top);
+            this.physics.add.existing(top);
+            top.body.setVelocityX(-180);
+            top.body.setImmovable(true);
+            top.body.setAllowGravity(false);
+            // Bottom pipe
+            const botY = gapY + gap;
+            const botH = H - botY;
+            const bot = this.add.rectangle(W + 30, botY + botH / 2, 52, botH, 0x4ecca3);
+            this.pipes.add(bot);
+            this.physics.add.existing(bot);
+            bot.body.setVelocityX(-180);
+            bot.body.setImmovable(true);
+            bot.body.setAllowGravity(false);
+
+            this.score++;
+            this.scoreTxt.setText(this.score.toString());
+
+            // Cleanup old pipes
+            this.time.delayedCall(6000, () => { top.destroy(); bot.destroy(); });
+          }
+          update() {}
+        }
+      },
+
+      // ── 7. TRON / LIGHT CYCLES ──────────────────────
+      tron: {
+        name: "🏍️ Tron",
+        controls: "WASD = P1, Arrows = P2",
+        multiplayer: "2-4 players — last trail standing",
+        scene: class extends Phaser.Scene {
+          create() {
+            this.cameras.main.setBackgroundColor("#0a0a0a");
+            this.gfx = this.add.graphics();
+            this.trails = [[], []];
+            this.players = [
+              { x: 200, y: H/2, dx: 2, dy: 0, color: 0xf7c948, alive: true },
+              { x: W - 200, y: H/2, dx: -2, dy: 0, color: 0xe94560, alive: true },
+            ];
+            this.grid = new Set();
+
+            this.keys = this.input.keyboard.addKeys({
+              w: "W", a: "A", s: "S", d: "D",
+              up: "UP", down: "DOWN", left: "LEFT", right: "RIGHT",
+            });
+
+            this.add.text(W/2, 16, "TRON — WASD vs Arrows", {
+              fontSize: "16px", color: "#555", fontFamily: "monospace"
+            }).setOrigin(0.5);
+          }
+          update() {
+            const p = this.players;
+            // P1 input
+            if (this.keys.w.isDown && p[0].dy === 0) { p[0].dx = 0; p[0].dy = -2; }
+            if (this.keys.s.isDown && p[0].dy === 0) { p[0].dx = 0; p[0].dy = 2; }
+            if (this.keys.a.isDown && p[0].dx === 0) { p[0].dy = 0; p[0].dx = -2; }
+            if (this.keys.d.isDown && p[0].dx === 0) { p[0].dy = 0; p[0].dx = 2; }
+            // P2 input
+            if (this.keys.up.isDown && p[1].dy === 0) { p[1].dx = 0; p[1].dy = -2; }
+            if (this.keys.down.isDown && p[1].dy === 0) { p[1].dx = 0; p[1].dy = 2; }
+            if (this.keys.left.isDown && p[1].dx === 0) { p[1].dy = 0; p[1].dx = -2; }
+            if (this.keys.right.isDown && p[1].dx === 0) { p[1].dy = 0; p[1].dx = 2; }
+
+            for (let i = 0; i < 2; i++) {
+              if (!p[i].alive) continue;
+              p[i].x += p[i].dx;
+              p[i].y += p[i].dy;
+              const key = Math.round(p[i].x) + "," + Math.round(p[i].y);
+              if (p[i].x < 0 || p[i].x > W || p[i].y < 0 || p[i].y > H || this.grid.has(key)) {
+                p[i].alive = false;
+                this.add.text(W/2, H/2 + (i * 30 - 15), "Player " + (i+1) + " crashed!", {
+                  fontSize: "20px", color: i === 0 ? "#f7c948" : "#e94560", fontFamily: "monospace"
+                }).setOrigin(0.5);
+                continue;
+              }
+              this.grid.add(key);
+              this.gfx.fillStyle(p[i].color, 1);
+              this.gfx.fillRect(p[i].x - 1, p[i].y - 1, 3, 3);
+            }
+          }
+        }
+      },
+
+      // ── 8. TANK BATTLE ──────────────────────────────
+      tanks: {
+        name: "🔫 Tanks",
+        controls: "WASD = move P1, ↑↓←→ = move P2, SPACE = P1 shoot, ENTER = P2 shoot",
+        multiplayer: "2-4 player deathmatch — perfect for Claudeshot",
+        scene: class extends Phaser.Scene {
+          create() {
+            this.cameras.main.setBackgroundColor("#1a1a1a");
+            // Walls
+            this.walls = this.physics.add.staticGroup();
+            const wallPositions = [
+              [200, 150, 20, 120], [400, 250, 120, 20], [600, 150, 20, 120],
+              [300, 400, 120, 20], [500, 350, 20, 120], [150, 300, 20, 100],
+              [650, 300, 20, 100], [400, 100, 100, 20],
+            ];
+            wallPositions.forEach(([x, y, w, h]) => {
+              this.walls.add(this.add.rectangle(x, y, w, h, 0x333333));
+            });
+
+            // Tanks
+            this.tank1 = this.add.rectangle(100, H - 60, 28, 28, 0xf7c948);
+            this.tank2 = this.add.rectangle(W - 100, 60, 28, 28, 0xe94560);
+            this.physics.add.existing(this.tank1);
+            this.physics.add.existing(this.tank2);
+            [this.tank1, this.tank2].forEach(t => {
+              t.body.setCollideWorldBounds(true);
+              t.setData("hp", 3);
+            });
+            this.physics.add.collider(this.tank1, this.walls);
+            this.physics.add.collider(this.tank2, this.walls);
+            this.physics.add.collider(this.tank1, this.tank2);
+
+            this.bullets = this.physics.add.group();
+            this.physics.add.collider(this.bullets, this.walls, (b) => b.destroy());
+
+            this.physics.add.overlap(this.bullets, this.tank1, (tank, b) => this.hitTank(tank, b, "P1"));
+            this.physics.add.overlap(this.bullets, this.tank2, (tank, b) => this.hitTank(tank, b, "P2"));
+
+            this.hp1 = this.add.text(16, 16, "P1: ❤️❤️❤️", { fontSize: "16px", color: "#f7c948", fontFamily: "monospace" });
+            this.hp2 = this.add.text(W - 160, 16, "P2: ❤️❤️❤️", { fontSize: "16px", color: "#e94560", fontFamily: "monospace" });
+
+            this.keys = this.input.keyboard.addKeys({
+              w: "W", a: "A", s: "S", d: "D", space: "SPACE",
+              up: "UP", down: "DOWN", left: "LEFT", right: "RIGHT",
+              enter: Phaser.Input.Keyboard.KeyCodes.ENTER,
+            });
+            this.t1Angle = 0; this.t2Angle = Math.PI;
+            this.lastShot1 = 0; this.lastShot2 = 0;
+          }
+          hitTank(tank, bullet, label) {
+            const shooter = bullet.getData("owner");
+            if (shooter === label) return; // no self-damage
+            bullet.destroy();
+            const hp = tank.getData("hp") - 1;
+            tank.setData("hp", hp);
+            const hearts = "❤️".repeat(Math.max(0, hp));
+            if (label === "P1") this.hp1.setText("P1: " + (hearts || "DEAD"));
+            else this.hp2.setText("P2: " + (hearts || "DEAD"));
+            if (hp <= 0) {
+              tank.destroy();
+              this.add.text(W/2, H/2, (label === "P1" ? "P2" : "P1") + " WINS!", {
+                fontSize: "40px", color: "#fff", fontFamily: "monospace"
+              }).setOrigin(0.5);
+            }
+          }
+          shoot(tank, angle, owner, time) {
+            const b = this.add.circle(
+              tank.x + Math.cos(angle) * 22,
+              tank.y + Math.sin(angle) * 22,
+              4, 0xffffff
+            );
+            this.bullets.add(b);
+            this.physics.add.existing(b);
+            b.body.setVelocity(Math.cos(angle) * 350, Math.sin(angle) * 350);
+            b.setData("owner", owner);
+            this.time.delayedCall(2000, () => b.destroy());
+          }
+          update(time) {
+            if (!this.tank1.active || !this.tank2.active) return;
+            const sp = 180;
+            // P1
+            this.tank1.body.setVelocity(0);
+            if (this.keys.a.isDown) { this.tank1.body.setVelocityX(-sp); this.t1Angle = Math.PI; }
+            if (this.keys.d.isDown) { this.tank1.body.setVelocityX(sp); this.t1Angle = 0; }
+            if (this.keys.w.isDown) { this.tank1.body.setVelocityY(-sp); this.t1Angle = -Math.PI/2; }
+            if (this.keys.s.isDown) { this.tank1.body.setVelocityY(sp); this.t1Angle = Math.PI/2; }
+            if (this.keys.space.isDown && time > this.lastShot1 + 500) {
+              this.lastShot1 = time;
+              this.shoot(this.tank1, this.t1Angle, "P1", time);
+            }
+            // P2
+            this.tank2.body.setVelocity(0);
+            if (this.keys.left.isDown) { this.tank2.body.setVelocityX(-sp); this.t2Angle = Math.PI; }
+            if (this.keys.right.isDown) { this.tank2.body.setVelocityX(sp); this.t2Angle = 0; }
+            if (this.keys.up.isDown) { this.tank2.body.setVelocityY(-sp); this.t2Angle = -Math.PI/2; }
+            if (this.keys.down.isDown) { this.tank2.body.setVelocityY(sp); this.t2Angle = Math.PI/2; }
+            if (this.keys.enter.isDown && time > this.lastShot2 + 500) {
+              this.lastShot2 = time;
+              this.shoot(this.tank2, this.t2Angle, "P2", time);
+            }
+          }
+        }
+      },
+
+    };
+
+    // ════════════════════════════════════════════════════
+    // GAME PICKER UI
+    // ════════════════════════════════════════════════════
+    const picker = document.getElementById("game-picker");
+    Object.entries(GAMES).forEach(([key, g]) => {
+      const btn = document.createElement("button");
+      btn.className = "pick-btn";
+      btn.textContent = g.name;
+      btn.onclick = () => launchGame(key);
+      picker.appendChild(btn);
+    });
+
+    function launchGame(key) {
+      if (currentGame) currentGame.destroy(true);
+      document.querySelectorAll(".pick-btn").forEach((b, i) => {
+        b.classList.toggle("active", Object.keys(GAMES)[i] === key);
+      });
+      const g = GAMES[key];
+      document.getElementById("game-info").innerHTML =
+        "<b>Controls:</b> " + g.controls + " &nbsp;|&nbsp; <b>Multiplayer idea:</b> " + g.multiplayer;
+
+      currentGame = new Phaser.Game({
+        type: Phaser.AUTO,
+        width: W,
+        height: H,
+        parent: "game-container",
+        physics: { default: "arcade", arcade: { debug: false, gravity: { y: 0 } } },
+        scene: g.scene,
+      });
+    }
+
+    // Auto-launch first game
+    launchGame("pong");
+  </script>
+</body>
+</html>

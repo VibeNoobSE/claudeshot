@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Phaser Game Showcase</title>
+  <style>
+    *{margin:0;padding:0;box-sizing:border-box}
+    body{background:#1a1a2e;font-family:'Nunito',sans-serif;color:#fff;min-height:100vh}
+    header{text-align:center;padding:18px 10px 10px}
+    header h1{color:#f7c948;font-size:22px}
+    header p{color:#888;font-size:13px;margin-top:4px}
+    #game-picker{display:flex;flex-wrap:wrap;justify-content:center;gap:8px;padding:10px 20px}
+    .pick-btn{background:#16213e;border:2px solid #2a3a5e;color:#ccc;padding:8px 16px;border-radius:8px;cursor:pointer;font-size:14px;transition:all .15s}
+    .pick-btn:hover{border-color:#f7c948;color:#f7c948}
+    .pick-btn.active{border-color:#f7c948;color:#f7c948;background:#1a2a4e}
+    #game-container{display:flex;justify-content:center;padding:10px}
+    #game-info{text-align:center;padding:4px;color:#aaa;font-size:13px}
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Phaser Game Showcase</h1>
+    <p>Pick a game — all candidates for Claudeshot Friday multiplayer.</p>
+  </header>
+  <div id="game-picker"></div>
+  <div id="game-info"></div>
+  <div id="game-container"></div>
+
+  <script src="https://cdn.jsdelivr.net/npm/phaser@3.80.1/dist/phaser.min.js"></script>
+  <script>
+    const W = 800, H = 500;
+    let currentGame = null;
+    const GAMES = {};
+
+    function registerGame(key, name, controls, multiplayer, sceneClass) {
+      GAMES[key] = { name, controls, multiplayer, scene: sceneClass };
+      const btn = document.createElement("button");
+      btn.className = "pick-btn";
+      btn.id = "btn-" + key;
+      btn.textContent = name;
+      btn.onclick = () => launchGame(key);
+      document.getElementById("game-picker").appendChild(btn);
+    }
+
+    function launchGame(key) {
+      if (currentGame) currentGame.destroy(true);
+      document.getElementById("game-container").innerHTML = "";
+      document.querySelectorAll(".pick-btn").forEach(b => b.classList.remove("active"));
+      document.getElementById("btn-" + key).classList.add("active");
+      const g = GAMES[key];
+      document.getElementById("game-info").innerHTML =
+        "<b>Controls:</b> " + g.controls + " | <b>Multiplayer:</b> " + g.multiplayer;
+      currentGame = new Phaser.Game({
+        type: Phaser.AUTO, width: W, height: H, parent: "game-container",
+        physics: { default: "arcade", arcade: { debug: false, gravity: { y: 0 } } },
+        scene: g.scene,
+      });
+    }
+  </script>
+
+  <!-- Individual game files -->
+  <script src="pong.js"></script>
+  <script src="breakout.js"></script>
+  <script src="asteroids.js"></script>
+  <script src="platformer.js"></script>
+  <script src="invaders.js"></script>
+  <script src="flappy.js"></script>
+  <script src="tron.js"></script>
+  <script src="tanks.js"></script>
+  <script src="sumo.js"></script>
+  <script src="dodgeball.js"></script>
+  <script src="king-of-hill.js"></script>
+  <script src="tag.js"></script>
+  <script src="racing.js"></script>
+  <script src="bomberman.js"></script>
+  <script src="air-hockey.js"></script>
+  <script src="volleyball.js"></script>
+  <script src="jousting.js"></script>
+  <script src="bumper-cars.js"></script>
+  <script src="hungry-hippos.js"></script>
+  <script src="duel.js"></script>
+  <script src="archery.js"></script>
+  <script src="golf.js"></script>
+  <script src="frogger.js"></script>
+  <script src="pac-chase.js"></script>
+  <script src="curling.js"></script>
+  <script src="soccer.js"></script>
+  <script src="boxing.js"></script>
+  <script src="snowball.js"></script>
+  <script src="paint-battle.js"></script>
+  <script src="territory.js"></script>
+  <script src="lava-floor.js"></script>
+  <script src="zombie.js"></script>
+  <script src="balloon-pop.js"></script>
+  <script src="maze-race.js"></script>
+  <script src="gravity-flip.js"></script>
+  <script src="reaction.js"></script>
+  <script src="memory-match.js"></script>
+  <script src="simon.js"></script>
+  <script src="connect4.js"></script>
+  <script src="whack-a-mole.js"></script>
+  <script src="fishing.js"></script>
+  <script src="marble-race.js"></script>
+  <script src="sword-fight.js"></script>
+  <script src="tower-climb.js"></script>
+  <script src="capture-flag.js"></script>
+  <script src="pinball.js"></script>
+  <script src="battle-royale.js"></script>
+  <script src="brick-breaker-duel.js"></script>
+  <script src="musical-chairs.js"></script>
+  <script src="typing-race.js"></script>
+
+  <script>
+    // Auto-launch first game
+    const firstKey = Object.keys(GAMES)[0];
+    if (firstKey) launchGame(firstKey);
+  </script>
+</body>
+</html>

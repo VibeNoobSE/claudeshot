@@ -30,6 +30,18 @@ document.querySelectorAll(".game-card:not(:disabled)").forEach(card => {
   });
 });
 
+// Discover more games toggle
+const discoverBtn = document.getElementById("discover-btn");
+const discoverText = document.getElementById("discover-text");
+const moreGames = document.getElementById("more-games");
+let discoverOpen = false;
+discoverBtn.addEventListener("click", () => {
+  discoverOpen = !discoverOpen;
+  moreGames.classList.toggle("hidden", !discoverOpen);
+  discoverBtn.classList.toggle("open", discoverOpen);
+  discoverText.textContent = discoverOpen ? "Hide extra games" : "Discover more games";
+});
+
 createBtn.addEventListener("click", () => {
   clearError();
   const name = getName();
