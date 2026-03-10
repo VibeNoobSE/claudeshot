@@ -27,14 +27,46 @@ socket.on("kicked", () => {
   window.location.href = "index.html";
 });
 
-socket.on("game-started", ({ game }) => {
-  sessionStorage.setItem("gameType", game || "snake");
+socket.on("game-started", () => {
   window.location.href = "game.html";
 });
+
+const GAME_NAMES = { snake: "🐍 Snake" };
+
+let gameSettings = {};
+
+function renderGameSettings(game) {
+  const container = document.getElementById("game-settings");
+  container.innerHTML = "";
+  gameSettings = {};
+
+  if (game === "snake") {
+    gameSettings.rounds = 1;
+    container.innerHTML = `
+      <div class="round-picker">
+        <label class="label">Rounds</label>
+        <div class="round-btns">
+          ${[1,2,3,4,5].map(n =>
+            `<button class="round-btn${n === 1 ? " active" : ""}" data-rounds="${n}">${n}</button>`
+          ).join("")}
+        </div>
+      </div>`;
+    container.querySelectorAll(".round-btn").forEach(btn => {
+      btn.addEventListener("click", () => {
+        container.querySelectorAll(".round-btn").forEach(b => b.classList.remove("active"));
+        btn.classList.add("active");
+        gameSettings.rounds = parseInt(btn.dataset.rounds);
+      });
+    });
+  }
+}
 
 function renderRoom(room) {
   document.getElementById("room-code").textContent = room.code;
   document.getElementById("player-count").textContent = room.players.length;
+
+  const gameLabel = document.getElementById("game-label");
+  if (gameLabel) gameLabel.textContent = GAME_NAMES[room.game] || room.game;
 
   const list = document.getElementById("player-list");
   list.innerHTML = "";
@@ -51,6 +83,10 @@ function renderRoom(room) {
   document.getElementById("host-controls").classList.toggle("hidden", !isHost);
   document.getElementById("guest-msg").classList.toggle("hidden", isHost);
 
+  if (isHost && document.getElementById("game-settings").innerHTML === "") {
+    renderGameSettings(room.game);
+  }
+
   const startBtn = document.getElementById("start-btn");
   if (isHost) {
     const canStart = room.players.length >= 1;
@@ -59,16 +95,6 @@ function renderRoom(room) {
   }
 }
 
-let selectedRounds = 1;
-
-document.querySelectorAll(".round-btn").forEach(btn => {
-  btn.addEventListener("click", () => {
-    document.querySelectorAll(".round-btn").forEach(b => b.classList.remove("active"));
-    btn.classList.add("active");
-    selectedRounds = parseInt(btn.dataset.rounds);
-  });
-});
-
 document.getElementById("start-btn").addEventListener("click", () => {
-  socket.emit("start-game", { rounds: selectedRounds });
+  socket.emit("start-game", gameSettings);
 });

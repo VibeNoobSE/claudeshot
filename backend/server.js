@@ -29,8 +29,6 @@ const activeGames = {};
 // Round tracking keyed by room code
 const activeRounds = {};
 
-const TOTAL_ROUNDS = 5;
-
 function startSnakeRound(r) {
   const round = activeRounds[r.code];
   r.gameStarted = true;
@@ -74,15 +72,17 @@ function startSnakeRound(r) {
 io.on("connection", (socket) => {
   console.log("Player connected:", socket.id);
 
-  socket.on("create-room", ({ name }) => {
+  socket.on("create-room", ({ name, game }) => {
     if (!name || !name.trim()) {
       socket.emit("error", "Name is required.");
       return;
     }
-    const room = createRoom(socket.id, name.trim());
+    const validGames = ["snake"];
+    const selectedGame = validGames.includes(game) ? game : "snake";
+    const room = createRoom(socket.id, name.trim(), selectedGame);
     socket.join(room.code);
     socket.emit("room-joined", room);
-    console.log(`Room ${room.code} created by ${name}`);
+    console.log(`Room ${room.code} created by ${name} (game: ${selectedGame})`);
   });
 
   socket.on("join-room", ({ code, name }) => {
@@ -140,7 +140,7 @@ io.on("connection", (socket) => {
       if (r.host === socket.id) {
         const total = Math.min(5, Math.max(1, parseInt(rounds) || 1));
         activeRounds[r.code] = { current: 1, total, totalScores: {} };
-        startSnakeRound(r);
+        if (r.game === "snake") startSnakeRound(r);
         return;
       }
     }

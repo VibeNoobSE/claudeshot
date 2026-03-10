@@ -20,6 +20,16 @@ function getName() {
   return nameInput.value.trim();
 }
 
+let selectedGame = "snake";
+
+document.querySelectorAll(".game-card:not(:disabled)").forEach(card => {
+  card.addEventListener("click", () => {
+    document.querySelectorAll(".game-card").forEach(c => c.classList.remove("active"));
+    card.classList.add("active");
+    selectedGame = card.dataset.game;
+  });
+});
+
 createBtn.addEventListener("click", () => {
   clearError();
   const name = getName();
@@ -27,7 +37,7 @@ createBtn.addEventListener("click", () => {
     showError("Please enter your name first.");
     return;
   }
-  socket.emit("create-room", { name });
+  socket.emit("create-room", { name, game: selectedGame });
 });
 
 joinBtn.addEventListener("click", () => {

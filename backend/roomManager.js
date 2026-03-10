@@ -9,11 +9,12 @@ function generateCode() {
   return code;
 }
 
-function createRoom(hostId, hostName) {
+function createRoom(hostId, hostName, game) {
   const code = generateCode();
   rooms.set(code, {
     code,
     host: hostId,
+    game: game || "snake",
     players: [{ id: hostId, name: hostName }],
     gameStarted: false
   });

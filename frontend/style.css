@@ -357,6 +357,39 @@ input::placeholder {
   text-align: center;
 }
 
+/* ─── Game picker (home) ────────────────────────────────── */
+.game-picker {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+.game-card {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.65rem 0.5rem;
+  background: rgba(255,255,255,0.06);
+  border: 2px solid rgba(255,255,255,0.1);
+  border-radius: 8px;
+  color: var(--muted);
+  font-family: inherit;
+  font-size: 0.8rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+.game-card:disabled { opacity: 0.35; cursor: default; }
+.game-card:not(:disabled):hover { background: rgba(255,255,255,0.1); color: var(--text); }
+.game-card.active {
+  border-color: var(--yellow);
+  color: var(--yellow);
+  background: rgba(247,201,72,0.08);
+}
+.game-card-icon { font-size: 1.4rem; }
+.game-card-name { letter-spacing: 0.5px; }
+
 /* ─── Round picker ──────────────────────────────────────── */
 .round-picker {
   display: flex;

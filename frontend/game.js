@@ -1,6 +1,5 @@
-const saved    = JSON.parse(sessionStorage.getItem("room") || "null");
-const myName   = sessionStorage.getItem("myName");
-const gameType = sessionStorage.getItem("gameType") || "snake";
+const saved  = JSON.parse(sessionStorage.getItem("room") || "null");
+const myName = sessionStorage.getItem("myName");
 
 if (!saved || !myName) {
   window.location.href = "index.html";
@@ -48,14 +47,11 @@ socket.on("kicked", () => {
   window.location.href = "index.html";
 });
 
-function initGame(room, round, totalRounds) {
+function initGame(room) {
   const isHost = room.host === socket.id;
   document.getElementById("host-end-controls").classList.toggle("hidden", !isHost);
 
-  const indicator = document.getElementById("round-indicator");
-  if (indicator && round) indicator.textContent = `Round ${round} / ${totalRounds}`;
-
-  if (gameType === "snake") {
+  if (room.game === "snake") {
     initSnakeClient(socket, socket.id, room);
   }
 }

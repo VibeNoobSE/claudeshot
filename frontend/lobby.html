@@ -28,6 +28,7 @@
           <p class="label">Room Code</p>
           <div class="room-code" id="room-code">------</div>
           <p class="room-hint">Share this code with your friends</p>
+          <p id="game-label" style="margin-top:0.5rem;font-size:0.8rem;color:#8892a4;font-weight:700;letter-spacing:1px;text-transform:uppercase;"></p>
         </div>
 
         <div class="card players-card">
@@ -35,16 +36,7 @@
           <ul class="player-list" id="player-list"></ul>
 
           <div id="host-controls" class="hidden">
-            <div class="round-picker">
-              <label class="label" for="round-select">Rounds</label>
-              <div class="round-btns">
-                <button class="round-btn active" data-rounds="1">1</button>
-                <button class="round-btn" data-rounds="2">2</button>
-                <button class="round-btn" data-rounds="3">3</button>
-                <button class="round-btn" data-rounds="4">4</button>
-                <button class="round-btn" data-rounds="5">5</button>
-              </div>
-            </div>
+            <div id="game-settings"></div>
             <button id="start-btn" class="btn btn-primary" disabled>Waiting for players...</button>
           </div>
 
