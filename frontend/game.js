@@ -5,7 +5,7 @@ if (!saved || !myName) {
   window.location.href = "index.html";
 }
 
-const socket = io(BACKEND_URL);
+const socket = io(BACKEND_URL, { transports: ["websocket"] });
 
 socket.on("connect", () => {
   socket.emit("rejoin-room", { code: saved.code, name: myName });

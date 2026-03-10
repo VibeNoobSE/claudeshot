@@ -1,6 +1,6 @@
 const COLS = 40;
 const ROWS = 40;
-const TICK_MS = 120;
+const TICK_MS = 50;
 
 const PLAYER_COLORS = [
   "#4ade80", "#60a5fa", "#f472b6", "#fb923c",
@@ -219,7 +219,7 @@ class SnakeGame {
 
     // Broadcast state
     const state = this.getState();
-    this.io.to(this.room.code).emit("snake-state", state);
+    this.io.to(this.room.code).volatile.emit("snake-state", state);
     console.log(`[Snake] Room ${this.room.code} tick ${this.tick} — alive: ${Object.values(this.snakes).filter(s => s.alive).length}`);
 
     // Check win condition

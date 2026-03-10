@@ -1,4 +1,4 @@
-const socket = io(BACKEND_URL);
+const socket = io(BACKEND_URL, { transports: ["websocket"] });
 
 const nameInput = document.getElementById("name-input");
 const codeInput = document.getElementById("code-input");
