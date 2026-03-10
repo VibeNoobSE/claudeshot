@@ -1,143 +1,150 @@
-# Adding a New Game to Claudeshot
+# Building a New Game for Claudeshot
 
-Each game is two files: a backend class that runs the game loop, and a frontend client that renders it. The lobby, rounds, scoring, and results page are all game-agnostic — you don't touch them.
+This guide is for someone who wants to add a new multiplayer game. You don't need to understand the full codebase — the lobby, rooms, rounds, and results screen are already built and will work automatically for your game. You just build the game itself.
+
+The recommended approach is to use Claude Code. Open a new chat, paste this file, describe your game idea, and ask it to write the code. Then bring the output back here to integrate it.
 
 ---
 
-## Step 1 — Backend: `backend/games/mygame.js`
+## What you're building
 
-Create a class with this interface:
+Every game is two files:
 
-```js
-class MyGame {
-  constructor(room, io, onEnd) {
-    this.room  = room;  // { code, players: [{ id, name }], ... }
-    this.io    = io;    // socket.io server instance
-    this.onEnd = onEnd; // call this when the game is over: onEnd([{ name, score }, ...])
-    this.interval = null;
-  }
+- **`backend/games/mygame.js`** — the server-side game logic (runs the game loop, tracks state, decides when the game ends)
+- **`frontend/games/mygame-client.js`** — the client-side renderer (draws the game, captures player input, sends it to the server)
 
-  start() {
-    // Set up and begin the game loop
-    this.interval = setInterval(() => this.gameTick(), 100);
-  }
+Everything else — the lobby, player list, round system, scoreboard, results page — already exists and doesn't need to change.
 
-  stop() {
-    // Clean up — always called before onEnd, and by the host "End Game" button
-    clearInterval(this.interval);
-  }
+---
 
-  updatePlayerId(oldId, newId) {
-    // Called if a player reconnects mid-game — update any reference to oldId → newId
-  }
+## Before you write any code: design your game
 
-  setInput(socketId, data) {
-    // Called when a player emits a game-specific input event from the frontend
-    // data is whatever the client sent
-  }
+Answer these questions first. Share them with Claude when asking it to build the game.
 
-  gameTick() {
-    // Your game logic here
-    // Broadcast state to players:
-    this.io.to(this.room.code).emit("mygame-state", { /* ... */ });
-    // When the game is over, call:
-    // this.endGame();
-  }
+**Game loop type — pick one:**
+- **Turn-based**: players take turns, nothing moves until someone acts (e.g. trivia, tic-tac-toe)
+- **Real-time**: the server ticks at a fixed interval regardless of input (e.g. snake, pong)
 
-  endGame() {
-    this.stop();
-    const scores = this.room.players.map(p => ({ name: p.name, score: 0 }));
-    // Populate scores — array of { name: string, score: number }
-    // Higher score = better rank on the results page
-    this.onEnd(scores);
-  }
-}
+**Win condition:**
+- Last player standing?
+- First to reach a score threshold?
+- Best score after a time limit?
 
-module.exports = MyGame;
+**Player input:**
+- Keyboard? (arrow keys, WASD, single keypresses)
+- Clicking on the screen?
+- Answering a question?
+
+**What does the screen show?**
+- A canvas (for anything visual/animated)
+- HTML elements (for quiz/card games)
+
+**Scoring:**
+- What earns points? How many?
+- The results screen ranks players by total score across all rounds — higher is better.
+
+---
+
+## How the server side works
+
+Your backend class gets three things when it's created:
+
+```
+room   — the room object: { code, players: [{ id, name }], ... }
+io     — the socket.io server, use this to send messages to players
+onEnd  — a callback you call when the game is over with the final scores
 ```
 
-**Notes:**
-- `room.players` is an array of `{ id, name }` — `id` is the socket ID
-- Emit any events you want to the room using `this.io.to(this.room.code).emit(...)`
-- `onEnd` must be called exactly once with `[{ name, score }]` — the round system accumulates these automatically across rounds
-
----
-
-## Step 2 — Frontend: `frontend/games/mygame-client.js`
-
-Create a file with two functions:
-
+During the game you broadcast state to all players in the room like this:
 ```js
-function initMygameClient(socket, myId, room) {
-  // Set up the game UI inside #game-area
-  const gameArea = document.getElementById("game-area");
-  gameArea.innerHTML = "";
-
-  // Listen for state from the server
-  socket.on("mygame-state", (state) => {
-    // Render state
-  });
-
-  // Send input to the server
-  window.addEventListener("keydown", myKeyHandler);
-  // socket.emit("mygame-input", { ... });
-}
-
-function cleanupGame() {
-  // Remove event listeners, clear intervals, etc.
-  // This is called automatically between rounds and on game end
-  window.removeEventListener("keydown", myKeyHandler);
-  socket.off("mygame-state");
-}
+this.io.to(this.room.code).emit("mygame-state", { /* whatever your game needs */ });
 ```
 
-**Notes:**
-- Always render into `#game-area` — clear it first with `gameArea.innerHTML = ""`
-- `cleanupGame` is called by `game.js` between rounds — make sure it fully resets state
-- Use `socket.off("mygame-state")` in cleanup to avoid duplicate listeners on round 2+
+When the game ends, you call:
+```js
+this.onEnd([
+  { name: "Alice", score: 12 },
+  { name: "Bob",   score:  7 },
+]);
+```
+
+The round system takes it from there — it accumulates scores across rounds and sends everyone to the results page when all rounds are done.
+
+**Required methods your class must have:**
+- `start()` — begin the game
+- `stop()` — clean up (called when host clicks "End Game" or between rounds)
+- `setInput(socketId, data)` — called when a player sends input from their browser
+- `updatePlayerId(oldId, newId)` — called if a player reconnects (just remap your references)
 
 ---
 
-## Step 3 — Wire it up (4 changes)
+## How the client side works
 
-### `backend/server.js`
+Your frontend file needs two functions:
 
-Add the require at the top:
+**`initMygameClient(socket, myId, room)`** — called when the game starts. Set up your UI, listen for state from the server, set up input handling.
+
+**`cleanupGame()`** — called between rounds and when the game ends. Remove all event listeners and socket listeners, clear any intervals. If you don't clean up properly, the next round will have duplicate listeners.
+
+The game renders inside `#game-area` — clear it and build your UI there:
 ```js
+const gameArea = document.getElementById("game-area");
+gameArea.innerHTML = "";
+```
+
+To send player input to the server:
+```js
+socket.emit("mygame-input", { /* your input data */ });
+```
+
+---
+
+## Prompting Claude to build your game
+
+Open a new chat and start with something like:
+
+> I'm building a multiplayer party game called [name] for a platform called Claudeshot.
+>
+> Here's how the platform works: [paste this file]
+>
+> My game works like this: [describe your game — the rules, how players win, what the screen looks like, what input players use]
+>
+> Please write:
+> 1. `backend/games/mygame.js` — the full server-side class
+> 2. `frontend/games/mygame-client.js` — the full client-side renderer
+
+The more specific you are about the rules and visuals, the better the output.
+
+---
+
+## Wiring it into the platform (7 small edits)
+
+Once you have the two game files, these edits connect them to the rest of the app. You can do these yourself or ask Claude Code in this repo to do them.
+
+**`backend/server.js`** — 3 edits:
+```js
+// 1. Add at the top with the other requires:
 const MyGame = require("./games/mygame");
-```
 
-Add your game to `validGames` in the `create-room` handler:
-```js
+// 2. Add to validGames in the create-room handler:
 const validGames = ["snake", "mygame"];
-```
 
-Add a branch in `start-game`:
-```js
-if (r.game === "snake")  startSnakeRound(r);
+// 3. Add a branch in start-game, after the snake line:
 if (r.game === "mygame") startMygameRound(r);
 ```
+Also copy the `startSnakeRound` function, rename it `startMygameRound`, and replace `SnakeGame` with `MyGame` and `"snake"` with `"mygame"`.
 
-Copy `startSnakeRound` and rename it `startMygameRound`, replacing `SnakeGame` with `MyGame` and `"snake"` with `"mygame"` in the emit.
-
-### `frontend/game.html`
-
-Add a script tag before `game.js`:
+**`frontend/game.html`** — add before `game.js`:
 ```html
 <script src="games/mygame-client.js"></script>
 ```
 
-### `frontend/game.js`
-
-Add a branch in `initGame`:
+**`frontend/game.js`** — add a branch in `initGame`:
 ```js
-if (room.game === "snake")  initSnakeClient(socket, socket.id, room);
 if (room.game === "mygame") initMygameClient(socket, socket.id, room);
 ```
 
-### `frontend/index.html`
-
-Add a game card in the `.game-picker` div:
+**`frontend/index.html`** — add a card in the `.game-picker` div:
 ```html
 <button class="game-card" data-game="mygame">
   <span class="game-card-icon">🎮</span>
@@ -145,38 +152,34 @@ Add a game card in the `.game-picker` div:
 </button>
 ```
 
-### `frontend/lobby.js` (optional)
-
-If your game has lobby settings (like round count for snake), add a branch in `renderGameSettings`:
+**`frontend/lobby.js`** — optional, only if your game has lobby settings (like a difficulty picker). Add a branch in `renderGameSettings`:
 ```js
 if (game === "mygame") {
-  gameSettings.myOption = "default";
-  container.innerHTML = `<!-- your settings HTML -->`;
+  gameSettings.difficulty = "normal"; // example
+  container.innerHTML = `<!-- your settings UI -->`;
 }
 ```
-
-`gameSettings` is sent as-is with `start-game`, and received in `server.js` as the first argument to `start-game`.
 
 ---
 
 ## File checklist
 
 ```
-backend/games/mygame.js          ← new
-frontend/games/mygame-client.js  ← new
-backend/server.js                ← 3 edits
-frontend/game.html               ← 1 edit
-frontend/game.js                 ← 1 edit
-frontend/index.html              ← 1 edit
-frontend/lobby.js                ← 1 edit (optional, if lobby settings needed)
+backend/games/mygame.js          ← new (write this)
+frontend/games/mygame-client.js  ← new (write this)
+backend/server.js                ← 3 small edits
+frontend/game.html               ← 1 line
+frontend/game.js                 ← 1 line
+frontend/index.html              ← 4 lines
+frontend/lobby.js                ← optional
 ```
 
 ---
 
-## Deploying
+## Deploy
 
 ```bash
-./deploy.sh "Add mygame"
+./deploy.sh "Add [game name]"
 ```
 
-Render will pick it up in ~1 minute.
+Live in ~1 minute on Render.
