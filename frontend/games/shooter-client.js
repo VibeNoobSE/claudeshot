@@ -616,7 +616,7 @@
       aimDir.normalize();
       raycaster.set(camera.position, aimDir);
 
-      const targets = worldMeshes.slice();
+      const targets = shotMeshes.slice();
       for (const [, a] of avatars) if (a.group.visible) targets.push(...a.meshes);
       const hits = raycaster.intersectObjects(targets, false);
       const hit = hits[0];

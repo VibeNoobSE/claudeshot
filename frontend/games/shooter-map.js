@@ -239,21 +239,20 @@
 
   // the keep
   box(KX, 4, KZ, 8, 8, 6, C.stone);
-  box(KX, 8.3, KZ, 9, 0.6, 7, C.stone);
+  box(KX, 8.3, KZ - 0.5, 9, 0.6, 8, C.stone);                       // roof, extended to meet the stair
   // Roof parapet. The west run stops short of the north-west corner, leaving a
   // doorway where the stair landing meets the roof — otherwise the parapet walls
   // off the only way up.
-  for (const [ox, oz, w, d] of [[0, -3.6, 9, 0.5], [0, 3.6, 9, 0.5], [4.6, 0, 0.5, 7]]) {
-    box(KX + ox, 9.1, KZ + oz, w, 1, d, C.stone);
-  }
-  box(KX - 4.6, 9.1, KZ + 1.0, 0.5, 1, 5, C.stone);                 // west parapet, short
+  box(KX + 1.25, 9.1, KZ - 4.1, 6.5, 1, 0.5, C.stone);              // north, open at its west end
+  box(KX, 9.1, KZ + 3.6, 9, 1, 0.5, C.stone);                       // south
+  box(KX + 4.6, 9.1, KZ - 0.5, 0.5, 1, 8, C.stone);                 // east
+  box(KX - 4.6, 9.1, KZ + 1.0, 0.5, 1, 5, C.stone);                 // west, stops short of the corner
   sign(KX, 5.4, KZ + 3.1, 6, 1.6, 0, BRAND.name, BRAND.accent, BRAND.color);
 
   // Stair run up the west side of the courtyard. Its top step finishes level with
   // the keep roof (both at y=8.6) and their footprints touch, so you walk straight
   // across — no landing slab, which is what used to block the top of the stairs.
   stairs(KX - 6, KZ + 5.5, 8.6, 9, 3, "z", -1, C.stone);
-  box(KX - 6, 8.3, KZ - 2.5, 3, 0.6, 2, C.stone);                   // landing alongside the roof
 
   // separate short flight on the east side up to the rampart walk
   stairs(KX + 6, KZ + 5.5, 4, 4, 3, "z", -1, C.stone);
