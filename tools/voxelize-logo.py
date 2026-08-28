@@ -18,8 +18,27 @@ def load(path, target_w):
     im = Image.open(path).convert("RGBA")
     bg = Image.new("RGBA", im.size, (255, 255, 255, 255))
     im = Image.alpha_composite(bg, im).convert("RGB")
+    im = crop_to_ink(im)
     h = max(1, round(im.height * target_w / im.width))
     return im.resize((target_w, h), Image.LANCZOS)
+
+def crop_to_ink(im, margin=1):
+    """Official artwork carries a lot of padding; trim to the mark itself so the
+    3D model is the logo rather than the logo adrift in empty space."""
+    px = im.load()
+    w, h = im.size
+    x0, y0, x1, y1 = w, h, -1, -1
+    for y in range(h):
+        for x in range(w):
+            if lum(px[x, y]) <= BG_LUM:
+                if x < x0: x0 = x
+                if y < y0: y0 = y
+                if x > x1: x1 = x
+                if y > y1: y1 = y
+    if x1 < 0:
+        return im
+    return im.crop((max(0, x0 - margin), max(0, y0 - margin),
+                    min(w, x1 + 1 + margin), min(h, y1 + 1 + margin)))
 
 def hsv(c):
     r, g, b = [v / 255.0 for v in c]

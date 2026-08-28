@@ -72,6 +72,61 @@ for (const [name, pts] of Object.entries(PLACES)) {
   else console.log("PASS  " + name);
 }
 
+// --- gaps too narrow to stand in but wide enough to wedge into ---------------
+// A ~0.6m slot between two solids is the classic "I got stuck" bug: the capsule
+// cannot fit, so collision pushes from both sides at once. The test is being
+// SQUEEZED — solid surfaces close on BOTH sides along an axis. Merely standing
+// next to one wall is normal and must not be reported.
+function solidAt(x, y, z) {
+  for (const e of E) {
+    if (x > e.mn[0] && x < e.mx[0] && y > e.mn[1] && y < e.mx[1] && z > e.mn[2] && z < e.mx[2]) return true;
+  }
+  return false;
+}
+
+function gap(x, y, z, ax, dir, max = 0.8) {
+  for (let d = 0.05; d <= max; d += 0.05) {
+    const px = x + (ax === 0 ? dir * d : 0);
+    const pz = z + (ax === 2 ? dir * d : 0);
+    if (solidAt(px, y, pz)) return d;
+  }
+  return max;
+}
+
+const NEED = 2 * R + 0.06;    // clearance a player actually needs across a slot
+const slots = [];
+const HALF = MAP.half;
+for (let x = -HALF + 1; x < HALF - 1; x += 0.25) {
+  for (let z = -HALF + 1; z < HALF - 1; z += 0.25) {
+    const y = 0.9;                       // chest height: where a body wedges
+    if (solidAt(x, y, z)) continue;      // inside geometry, not a slot
+    const spanX = gap(x, y, z, 0, -1) + gap(x, y, z, 0, 1);
+    const spanZ = gap(x, y, z, 2, -1) + gap(x, y, z, 2, 1);
+    // squeezed on both sides along an axis, and not merely a doorway (the other
+    // axis has to be enclosed enough that you can walk in and jam)
+    // Below MIN the "gap" is either a shared face between two touching boxes (a
+    // sampling artifact) or too thin for a player to enter at all.
+    const MIN = 0.22;
+    if ((spanX > MIN && spanX < NEED) || (spanZ > MIN && spanZ < NEED)) {
+      slots.push([+x.toFixed(2), +z.toFixed(2)]);
+    }
+  }
+}
+if (slots.length) {
+  const seen = new Set();
+  const clusters = [];
+  for (const [x, z] of slots) {
+    const key = Math.round(x / 2) + ":" + Math.round(z / 2);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    clusters.push([x, z]);
+  }
+  fail("squeeze traps at " + clusters.length + " spot(s): " +
+    clusters.slice(0, 8).map((c) => "[" + c.join(",") + "]").join(" "));
+} else {
+  console.log("PASS  no squeeze traps (no sub-" + NEED.toFixed(2) + "m slots)");
+}
+
 // --- spawns and pickups must be clear ---------------------------------------
 const badSpawns = MAP.spawns.filter((sp) => !standable(sp[0], sp[1], sp[2], null));
 if (badSpawns.length) fail("blocked spawns: " + badSpawns.map((s) => s.join(",")).join(" | "));

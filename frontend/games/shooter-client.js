@@ -449,8 +449,9 @@
 
           let ring = null;
           if (m.ring) {
+            const span = new THREE.Box3().setFromObject(model).getSize(new THREE.Vector3());
             ring = new THREE.Mesh(
-              new THREE.TorusGeometry(m.height * 2.1, 0.08, 8, 32),
+              new THREE.TorusGeometry(span.x / 2 + 0.7, 0.08, 8, 32),
               new THREE.MeshBasicMaterial({ color: BRAND.color, transparent: true, opacity: 0.7 })
             );
             ring.rotation.x = Math.PI / 2;
@@ -481,10 +482,10 @@
 
     // --------------------------------------------------------------- pickups
     const PICKUP_STYLE = {
-      health: { color: 0x4ecca3, label: "+50 HEALTH" },
-      ammo:   { color: 0xf7c948, label: "AMMO REFILLED" },
-      damage: { color: 0xff7a3d, label: "2\u00d7 DAMAGE" },
-      speed:  { color: 0x5dade2, label: "SPEED BOOST" },
+      health: { color: 0x4ecca3, label: "+50 HEALTH",    short: "HP" },
+      ammo:   { color: 0xf7c948, label: "AMMO REFILLED", short: "AMMO" },
+      damage: { color: 0xff7a3d, label: "2\u00d7 DAMAGE",   short: "2\u00d7 DMG" },
+      speed:  { color: 0x5dade2, label: "SPEED BOOST",   short: "SPEED" },
     };
 
     function buildPickupIcon(type) {
@@ -527,6 +528,11 @@
       );
       glow.position.y = 0.2;
       group.add(glow);
+      // short name floating above, so you can read what a pickup is at a glance
+      const tag = makeLabel(style.short, "#" + style.color.toString(16).padStart(6, "0"));
+      tag.scale.set(1.35, 0.34, 1);
+      tag.position.y = 0.95;
+      group.add(tag);
       scene.add(group);
       pickupObjs.set(pk.id, { group, icon, type: pk.type, pos: pk.pos, lastClaim: 0 });
     }
