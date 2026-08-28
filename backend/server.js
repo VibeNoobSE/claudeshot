@@ -6,10 +6,12 @@ const cors = require("cors");
 const { createRoom, joinRoom, rejoinRoom, leaveRoom, getRooms } = require("./roomManager");
 const SnakeGame = require("./games/snake");
 const HungryGame = require("./games/hungry");
+const ShooterGame = require("./games/shooter");
 
 const GAME_REGISTRY = {
   snake: { Game: SnakeGame, maxPlayers: 8 },
   hungry: { Game: HungryGame, maxPlayers: 8 },
+  shooter: { Game: ShooterGame, maxPlayers: 8 },
 };
 
 const app = express();
@@ -173,6 +175,12 @@ io.on("connection", (socket) => {
   });
 
   socket.on("hungry-input", (data) => {
+    for (const [, game] of Object.entries(activeGames)) {
+      game.setInput(socket.id, data);
+    }
+  });
+
+  socket.on("shooter-input", (data) => {
     for (const [, game] of Object.entries(activeGames)) {
       game.setInput(socket.id, data);
     }

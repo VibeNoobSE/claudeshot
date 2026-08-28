@@ -3,3 +3,4 @@ node_modules
 deploy.sh
 CLAUDE.md
 .DS_Store
+node_modules/
