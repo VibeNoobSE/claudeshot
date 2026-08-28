@@ -26,6 +26,9 @@
   const RANGE = 140;
   const SEND_MS = 50;
   const LOOK_SENS = 0.0022;
+  const SPEED_BUFF = 1.5;
+  const PICKUP_REACH = 1.9;
+  const CLAIM_COOLDOWN = 400;
 
   let session = null;
 
@@ -52,6 +55,7 @@
       timeouts: [],
       domListeners: [],
       socketEvents: [],
+      cleanups: [],
       renderer: null,
       socket: null,
     };
@@ -70,6 +74,7 @@
       s.intervals.forEach(clearInterval);
       s.timeouts.forEach(clearTimeout);
       s.domListeners.forEach(([t, ty, fn, o]) => t.removeEventListener(ty, fn, o));
+      s.cleanups.forEach((fn) => { try { fn(); } catch (e) { /* best effort */ } });
       if (s.socket) s.socketEvents.forEach(([e, fn]) => s.socket.off(e, fn));
       if (document.pointerLockElement) document.exitPointerLock();
       if (s.renderer) { s.renderer.dispose(); s.renderer.forceContextLoss?.(); }
@@ -94,10 +99,28 @@
     const MAP = window.SHOOTER_MAP;
 
     // ---------------------------------------------------------------- layout
+    // The shell page is built for small canvas games; widen it while we're playing
+    // and give the space back on cleanup.
+    const pageStyle = document.createElement("style");
+    pageStyle.textContent = [
+      "body.shooter-active .container{max-width:99vw !important;width:99vw !important;padding:0.4rem !important;}",
+      "body.shooter-active .page-center{padding:0 !important;}",
+      "body.shooter-active .game-area-card{padding:0.4rem !important;max-width:none !important;}",
+      "body.shooter-active .logo,body.shooter-active .tagline{display:none !important;}",
+      "body.shooter-active #game-area{width:100%;}",
+    ].join("\n");
+    document.head.appendChild(pageStyle);
+    document.body.classList.add("shooter-active");
+    s.cleanups.push(() => {
+      document.body.classList.remove("shooter-active");
+      pageStyle.remove();
+      if (document.fullscreenElement) document.exitFullscreen();
+    });
+
     const area = document.getElementById("game-area");
     area.innerHTML = "";
     const wrap = document.createElement("div");
-    wrap.style.cssText = "position:relative;width:100%;max-width:960px;margin:0 auto;border-radius:10px;overflow:hidden;background:#0b1020;";
+    wrap.style.cssText = "position:relative;width:100%;margin:0 auto;border-radius:10px;overflow:hidden;background:#0b1020;";
     area.appendChild(wrap);
 
     const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
@@ -109,44 +132,115 @@
     const hud = buildHud(wrap);
 
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color("#0b1020");
-    scene.fog = new THREE.Fog("#0b1020", 55, 110);
+    const sky = MAP.skyColor || "#8ec5e8";
+    scene.background = new THREE.Color(sky);
+    scene.fog = new THREE.Fog(sky, 70, 165);
+    wrap.style.background = sky;
 
     const camera = new THREE.PerspectiveCamera(78, 16 / 9, 0.1, 400);
     camera.rotation.order = "YXZ";
 
+    // The weapon lives in its own scene rendered as a second pass with the depth
+    // buffer cleared. That is why it can never clip into a wall you stand against.
+    const viewScene = new THREE.Scene();
+    const viewCamera = new THREE.PerspectiveCamera(60, 16 / 9, 0.01, 14);
+    viewScene.add(new THREE.HemisphereLight(0xffffff, 0x555c70, 1.25));
+    const viewSun = new THREE.DirectionalLight(0xfff4e2, 1.15);
+    viewSun.position.set(1.2, 2, 1.4);
+    viewScene.add(viewSun);
+    const gun = buildGun(THREE);
+    viewScene.add(gun.group);
+    renderer.autoClear = false;
+
     function resize() {
-      const w = wrap.clientWidth || 960;
-      const h = Math.round(w * 9 / 16);
+      const fs = !!document.fullscreenElement;
+      // fill the window: use all the width available, and all the height left over
+      // after the surrounding page chrome (nothing but the round indicator in fullscreen)
+      const availW = fs ? window.innerWidth : Math.max(320, wrap.clientWidth || window.innerWidth - 24);
+      const chrome = fs ? 0 : 110;
+      const availH = Math.max(320, window.innerHeight - chrome);
+      let w = availW;
+      let h = Math.round(w * 9 / 16);
+      if (h > availH) { h = availH; w = Math.round(h * 16 / 9); }
       renderer.setSize(w, h, false);
+      renderer.domElement.style.width = w + "px";
+      renderer.domElement.style.height = h + "px";
+      wrap.style.width = w + "px";
+      wrap.style.height = h + "px";
       camera.aspect = w / h;
       camera.updateProjectionMatrix();
+      viewCamera.aspect = w / h;
+      viewCamera.updateProjectionMatrix();
     }
     resize();
     s.on(window, "resize", resize);
+    s.on(document, "fullscreenchange", () => setTimeout(resize, 60));
 
-    scene.add(new THREE.HemisphereLight(0xbcd0ff, 0x2a2f45, 1.15));
-    const sun = new THREE.DirectionalLight(0xffffff, 1.5);
-    sun.position.set(24, 46, 14);
+    // outdoor daylight: warm sun, cool sky bounce
+    scene.add(new THREE.HemisphereLight(0xdcefff, 0x6a7a5e, 1.0));
+    scene.add(new THREE.AmbientLight(0xffffff, 0.25));
+    const sun = new THREE.DirectionalLight(0xfff2d8, 1.45);
+    sun.position.set(38, 60, 22);
     scene.add(sun);
+    const bounce = new THREE.DirectionalLight(0xbcd6ff, 0.35);
+    bounce.position.set(-30, 20, -25);
+    scene.add(bounce);
 
     // ----------------------------------------------------------------- world
-    const worldGroup = new THREE.Group();
-    const worldMeshes = [];
-    const edgeMat = new THREE.LineBasicMaterial({ color: 0x0a0f1e, transparent: true, opacity: 0.55 });
+    // Three overlapping sets, deliberately kept distinct:
+    //   collideGroup — what the player capsule is pushed out of (includes glass)
+    //   shotMeshes   — what stops a bullet (excludes glass and foliage, and
+    //                  exactly matches the boxes the server validates against)
+    //   everything is rendered either way
+    const collideGroup = new THREE.Group();
+    const shotMeshes = [];
+    const edgeMat = new THREE.LineBasicMaterial({ color: 0x1b2233, transparent: true, opacity: 0.35 });
     for (const b of MAP.boxes) {
       const geo = new THREE.BoxGeometry(b.size[0], b.size[1], b.size[2]);
-      const mesh = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ color: b.color }));
+      const matOpts = { color: b.color };
+      if (b.opacity !== undefined) { matOpts.transparent = true; matOpts.opacity = b.opacity; }
+      const mesh = new THREE.Mesh(geo, new THREE.MeshLambertMaterial(matOpts));
       mesh.position.set(b.pos[0], b.pos[1], b.pos[2]);
-      worldGroup.add(mesh);
-      worldMeshes.push(mesh);
-      const edges = new THREE.LineSegments(new THREE.EdgesGeometry(geo), edgeMat);
-      edges.position.copy(mesh.position);
-      scene.add(edges);
-    }
-    scene.add(worldGroup);
 
-    const octree = new Octree().fromGraphNode(worldGroup);
+      const blocksShots = b.solid !== false;
+      const collides = b.collide !== undefined ? b.collide : blocksShots;
+      if (collides) collideGroup.add(mesh); else scene.add(mesh);
+      if (blocksShots) shotMeshes.push(mesh);
+
+      if (b.edges !== false && Math.max(b.size[0], b.size[1], b.size[2]) >= 3) {
+        const edges = new THREE.LineSegments(new THREE.EdgesGeometry(geo), edgeMat);
+        edges.position.copy(mesh.position);
+        scene.add(edges);
+      }
+    }
+    scene.add(collideGroup);
+
+    const octree = new Octree().fromGraphNode(collideGroup);
+
+    // shop / room signage, drawn as canvas textures
+    for (const sg of MAP.signs || []) {
+      const cv = document.createElement("canvas");
+      cv.width = 512;
+      cv.height = Math.max(64, Math.round(512 * sg.size[1] / sg.size[0]));
+      const ctx = cv.getContext("2d");
+      ctx.fillStyle = sg.bg;
+      ctx.fillRect(0, 0, cv.width, cv.height);
+      ctx.strokeStyle = "rgba(255,255,255,0.18)";
+      ctx.lineWidth = 8;
+      ctx.strokeRect(4, 4, cv.width - 8, cv.height - 8);
+      ctx.fillStyle = sg.color;
+      ctx.font = "900 " + Math.round(cv.height * 0.58) + "px Nunito, sans-serif";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(sg.text, cv.width / 2, cv.height / 2 + 2);
+      const plane = new THREE.Mesh(
+        new THREE.PlaneGeometry(sg.size[0], sg.size[1]),
+        new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(cv) })
+      );
+      plane.position.set(sg.pos[0], sg.pos[1], sg.pos[2]);
+      plane.rotation.y = sg.rotY || 0;
+      scene.add(plane);
+    }
 
     // ---------------------------------------------------------------- player
     const collider = new Capsule(
@@ -167,6 +261,12 @@
     let firing = false;
     let lastFire = 0;
     let countdown = 0;
+    let buffs = { bd: 0, bs: 0 };
+    let speedMul = 1;
+    let gunPhase = 0;
+    let recoil = 0;
+    let reloadUntil = 0;
+    let flashUntil = 0;
     let timeLeft = 0;
     let snapshotPlayers = [];
     let deathMessage = "";
@@ -193,7 +293,7 @@
 
     function applyInput(dt) {
       if (!alive || countdown > 0) return;
-      const accel = dt * (onFloor ? ACCEL_GROUND : ACCEL_AIR);
+      const accel = dt * (onFloor ? ACCEL_GROUND : ACCEL_AIR) * speedMul;
       if (keys.KeyW || keys.ArrowUp) velocity.add(forwardVector().multiplyScalar(accel));
       if (keys.KeyS || keys.ArrowDown) velocity.add(forwardVector().multiplyScalar(-accel));
       if (keys.KeyA || keys.ArrowLeft) velocity.add(sideVector().multiplyScalar(-accel));
@@ -300,6 +400,175 @@
       }
     }
 
+    // ------------------------------------------------------------- landmarks
+    // Spinning company sign. Faces show a drawn wordmark by default; if a real
+    // logo image exists at MAP.brand.texture it replaces them once it loads.
+    const BRAND = MAP.brand || { name: "LOGO", color: "#0e7c6b", accent: "#ffffff" };
+    const spinners = [];
+    const brandFaceMats = [];
+
+    function brandWordmark() {
+      const cv = document.createElement("canvas");
+      cv.width = 512; cv.height = 224;
+      const ctx = cv.getContext("2d");
+      const grad = ctx.createLinearGradient(0, 0, 0, cv.height);
+      grad.addColorStop(0, BRAND.color);
+      grad.addColorStop(1, BRAND.dark || BRAND.color);
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, cv.width, cv.height);
+      ctx.strokeStyle = "rgba(255,255,255,0.25)";
+      ctx.lineWidth = 10;
+      ctx.strokeRect(5, 5, cv.width - 10, cv.height - 10);
+      ctx.fillStyle = BRAND.accent;
+      ctx.font = "900 108px Nunito, sans-serif";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(BRAND.name, cv.width / 2, cv.height / 2 + 4);
+      return new THREE.CanvasTexture(cv);
+    }
+
+    for (const lm of MAP.landmarks || []) {
+      const front = new THREE.MeshLambertMaterial({ map: brandWordmark(), emissive: 0x223333, emissiveIntensity: 0.4 });
+      const backTex = brandWordmark();
+      backTex.wrapS = THREE.RepeatWrapping;
+      backTex.repeat.x = -1;              // mirror so the reverse face reads correctly
+      backTex.offset.x = 1;
+      const back = new THREE.MeshLambertMaterial({ map: backTex, emissive: 0x223333, emissiveIntensity: 0.4 });
+      const side = new THREE.MeshLambertMaterial({ color: BRAND.color });
+      brandFaceMats.push(front, back);
+
+      const mesh = new THREE.Mesh(
+        new THREE.BoxGeometry(lm.size[0], lm.size[1], lm.size[2]),
+        [side, side, side, side, front, back]
+      );
+      mesh.position.set(lm.pos[0], lm.pos[1], lm.pos[2]);
+      scene.add(mesh);
+
+      let ring = null;
+      if (lm.ring) {
+        ring = new THREE.Mesh(
+          new THREE.TorusGeometry(lm.size[0] * 0.72, 0.09, 8, 32),
+          new THREE.MeshBasicMaterial({ color: BRAND.accent, transparent: true, opacity: 0.65 })
+        );
+        ring.rotation.x = Math.PI / 2;
+        ring.position.copy(mesh.position);
+        scene.add(ring);
+        const glow = new THREE.PointLight(new THREE.Color(BRAND.color), 1.6, 22);
+        glow.position.copy(mesh.position);
+        scene.add(glow);
+      }
+      spinners.push({ mesh, ring, baseY: lm.pos[1], spin: lm.spin || 0.5 });
+    }
+
+    // swap in the real logo image if one has been dropped into frontend/assets
+    if (BRAND.texture && brandFaceMats.length) {
+      new THREE.TextureLoader().load(
+        BRAND.texture,
+        (tex) => {
+          if (s.disposed) return;
+          brandFaceMats.forEach((m, i) => {
+            const t = i % 2 === 0 ? tex : tex.clone();
+            if (i % 2 === 1) {
+              t.wrapS = THREE.RepeatWrapping;
+              t.repeat.x = -1;
+              t.offset.x = 1;
+              t.needsUpdate = true;
+            }
+            m.map = t;
+            m.needsUpdate = true;
+          });
+        },
+        undefined,
+        () => { /* no logo file yet — the drawn wordmark stays */ }
+      );
+    }
+
+    function updateLandmarks(dt) {
+      const bob = Math.sin(performance.now() / 900) * 0.18;
+      for (const sp of spinners) {
+        sp.mesh.rotation.y += dt * sp.spin;
+        sp.mesh.position.y = sp.baseY + bob;
+        if (sp.ring) {
+          sp.ring.rotation.z -= dt * sp.spin * 1.8;
+          sp.ring.position.y = sp.baseY + bob * 0.5;
+        }
+      }
+    }
+
+    // --------------------------------------------------------------- pickups
+    const PICKUP_STYLE = {
+      health: { color: 0x4ecca3, label: "+50 HEALTH" },
+      ammo:   { color: 0xf7c948, label: "AMMO REFILLED" },
+      damage: { color: 0xff7a3d, label: "2\u00d7 DAMAGE" },
+      speed:  { color: 0x5dade2, label: "SPEED BOOST" },
+    };
+
+    function buildPickupIcon(type) {
+      const style = PICKUP_STYLE[type] || PICKUP_STYLE.ammo;
+      const mat = new THREE.MeshLambertMaterial({ color: style.color, emissive: style.color, emissiveIntensity: 0.35 });
+      const icon = new THREE.Group();
+      if (type === "health") {
+        icon.add(new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.2, 0.2), mat));
+        icon.add(new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.62, 0.2), mat));
+      } else if (type === "ammo") {
+        icon.add(new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.36, 0.36), mat));
+        const band = new THREE.Mesh(new THREE.BoxGeometry(0.54, 0.1, 0.4), new THREE.MeshLambertMaterial({ color: 0x2b3245 }));
+        icon.add(band);
+      } else if (type === "damage") {
+        icon.add(new THREE.Mesh(new THREE.OctahedronGeometry(0.38), mat));
+      } else {
+        const cone = new THREE.Mesh(new THREE.ConeGeometry(0.28, 0.6, 6), mat);
+        icon.add(cone);
+      }
+      return icon;
+    }
+
+    const pickupObjs = new Map();
+    for (const pk of MAP.pickups || []) {
+      const style = PICKUP_STYLE[pk.type] || PICKUP_STYLE.ammo;
+      const group = new THREE.Group();
+      group.position.set(pk.pos[0], pk.pos[1], pk.pos[2]);
+      const icon = buildPickupIcon(pk.type);
+      group.add(icon);
+      const ring = new THREE.Mesh(
+        new THREE.TorusGeometry(0.75, 0.05, 6, 20),
+        new THREE.MeshBasicMaterial({ color: style.color, transparent: true, opacity: 0.75 })
+      );
+      ring.rotation.x = -Math.PI / 2;
+      ring.position.y = -pk.pos[1] + 0.06;
+      group.add(ring);
+      const glow = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.55, 0.55, 1.6, 10, 1, true),
+        new THREE.MeshBasicMaterial({ color: style.color, transparent: true, opacity: 0.12, side: THREE.DoubleSide })
+      );
+      glow.position.y = 0.2;
+      group.add(glow);
+      scene.add(group);
+      pickupObjs.set(pk.id, { group, icon, type: pk.type, pos: pk.pos, lastClaim: 0 });
+    }
+
+    let activePickups = new Set((MAP.pickups || []).map((pk) => pk.id));
+
+    function updatePickups(dt) {
+      const now = performance.now();
+      for (const [id, o] of pickupObjs) {
+        const on = activePickups.has(id);
+        o.group.visible = on;
+        if (!on) continue;
+        o.icon.rotation.y += dt * 1.6;
+        o.icon.position.y = Math.sin(now / 420) * 0.14;
+        if (!alive || countdown > 0) continue;
+        const feetY = collider.start.y - PLAYER_RADIUS;
+        const dx = camera.position.x - o.pos[0];
+        const dy = feetY - o.pos[1];
+        const dz = camera.position.z - o.pos[2];
+        if (Math.sqrt(dx * dx + dy * dy + dz * dz) > PICKUP_REACH + 0.9) continue;
+        if (now - o.lastClaim < CLAIM_COOLDOWN) continue;
+        o.lastClaim = now;
+        s.socket.emit("shooter-input", { t: "pickup", id });
+      }
+    }
+
     // -------------------------------------------------------------- shooting
     const raycaster = new THREE.Raycaster();
     raycaster.far = RANGE;
@@ -338,6 +607,7 @@
     function reload() {
       if (reloading || ammo === MAG_SIZE) return;
       reloading = true;
+      reloadUntil = performance.now() + RELOAD_MS;
       s.timeouts.push(setTimeout(() => {
         ammo = MAG_SIZE;
         reloading = false;
@@ -365,7 +635,15 @@
       const hit = hits[0];
       const end = hit ? hit.point : camera.position.clone().addScaledVector(aimDir, RANGE);
 
-      tracer(camera.position.clone().addScaledVector(aimDir, 1.2), end);
+      // start the tracer at the barrel, not the eye, so it reads as coming from the gun
+      const right = new THREE.Vector3().crossVectors(aimDir, camera.up).normalize();
+      const muzzle = camera.position.clone()
+        .addScaledVector(aimDir, 1.0)
+        .addScaledVector(right, 0.17)
+        .addScaledVector(camera.up, -0.13);
+      tracer(muzzle, end);
+      recoil = Math.min(1, recoil + 0.55);
+      flashUntil = performance.now() + 45;
       camera.rotation.x = Math.min(Math.PI / 2 * 0.95, camera.rotation.x + 0.006);
 
       if (!hit) return;
@@ -381,6 +659,10 @@
     s.on(document, "keydown", (e) => {
       keys[e.code] = true;
       if (e.code === "KeyR") reload();
+      if (e.code === "KeyF") {
+        if (document.fullscreenElement) document.exitFullscreen();
+        else wrap.requestFullscreen?.().then(() => renderer.domElement.requestPointerLock()).catch(() => {});
+      }
       if (locked && (e.code === "Space" || e.code.startsWith("Arrow"))) e.preventDefault();
     });
     s.on(document, "keyup", (e) => { keys[e.code] = false; });
@@ -418,11 +700,14 @@
       snapshotPlayers = state.players;
       countdown = state.countdown;
       timeLeft = state.timeLeft;
+      activePickups = new Set(state.pickups || []);
       const me = state.players.find((p) => p.id === s.socket.id);
       if (me) {
         hp = me.hp;
         if (alive && !me.alive) firing = false;
         alive = me.alive;
+        buffs = { bd: me.bd || 0, bs: me.bs || 0 };
+        speedMul = buffs.bs > 0 ? SPEED_BUFF : 1;
       }
       hud.setScores(state.players, s.socket.id);
     });
@@ -430,6 +715,14 @@
     s.sock("shooter-damaged", ({ from, hp: newHp }) => {
       hp = newHp;
       hud.flashDamage(from);
+    });
+
+    s.sock("shooter-pickup", ({ id, type, byId }) => {
+      activePickups.delete(id);
+      if (byId !== s.socket.id) return;
+      if (type === "ammo") { ammo = MAG_SIZE; reloading = false; }
+      const style = PICKUP_STYLE[type];
+      hud.toast(style ? style.label : "PICKED UP", style ? "#" + style.color.toString(16).padStart(6, "0") : "#f7c948");
     });
 
     s.sock("shooter-kill", ({ killer, victim, victimId, headshot }) => {
@@ -447,6 +740,28 @@
     }, SEND_MS);
     s.intervals.push(sendTimer);
 
+    // ------------------------------------------------------- weapon animation
+    const GUN_BASE = gun.base;
+    function updateGun(dt) {
+      gun.group.visible = alive && countdown === 0;
+      const now = performance.now();
+      const moving = onFloor && Math.hypot(velocity.x, velocity.z) > 1.2;
+      gunPhase += dt * (moving ? 9 : 2.4);
+      const amp = moving ? 0.014 : 0.004;
+      recoil = Math.max(0, recoil - dt * 6);
+      // reload: swing the weapon down and back up over RELOAD_MS
+      const remain = reloading ? Math.max(0, (reloadUntil - now) / RELOAD_MS) : 0;
+      const tilt = reloading ? Math.sin(Math.PI * (1 - remain)) * 0.85 : 0;
+      gun.group.position.set(
+        GUN_BASE.x + Math.sin(gunPhase) * amp,
+        GUN_BASE.y + Math.abs(Math.cos(gunPhase)) * amp * 0.8 - tilt * 0.13,
+        GUN_BASE.z + recoil * 0.1
+      );
+      gun.group.rotation.set(-recoil * 0.32 + tilt, 0.05 + tilt * 0.45, tilt * 0.3);
+      gun.flash.visible = now < flashUntil;
+      if (gun.flash.visible) gun.flash.rotation.z = Math.random() * Math.PI;
+    }
+
     // ------------------------------------------------------------------ loop
     const clock = new THREE.Clock();
     function animate() {
@@ -458,12 +773,62 @@
         stepPlayer(sub);
       }
       updateAvatars(dt);
+      updatePickups(dt);
+      updateLandmarks(dt);
       if (firing) fire();
       updateEffects();
+      updateGun(dt);
+      renderer.clear();
       renderer.render(scene, camera);
-      hud.update({ hp, ammo, reloading, countdown, timeLeft, alive, locked, deathMessage });
+      renderer.clearDepth();           // weapon pass — never clips into geometry
+      renderer.render(viewScene, viewCamera);
+      hud.update({ hp, ammo, reloading, countdown, timeLeft, alive, locked, deathMessage, buffs });
     }
     animate();
+  }
+
+  // ---------------------------------------------------------------- weapon
+  // First-person rifle, built from boxes. Sits bottom-right of the view camera,
+  // which looks down -Z, so the barrel points away from the player.
+  function buildGun(THREE) {
+    const group = new THREE.Group();
+    const body = new THREE.MeshLambertMaterial({ color: 0x2f3648 });
+    const dark = new THREE.MeshLambertMaterial({ color: 0x1c2130 });
+    const trim = new THREE.MeshLambertMaterial({ color: 0xf7c948 });
+    const hand = new THREE.MeshLambertMaterial({ color: 0xd6a071 });
+
+    function part(mat, w, h, d, x, y, z) {
+      const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
+      m.position.set(x, y, z);
+      group.add(m);
+      return m;
+    }
+
+    part(body, 0.17, 0.17, 0.92, 0, 0, 0);          // receiver
+    part(dark, 0.12, 0.13, 0.5, 0, -0.01, -0.6);    // handguard
+    part(dark, 0.07, 0.07, 0.66, 0, 0.02, -1.0);    // barrel
+    part(dark, 0.1, 0.05, 0.1, 0, 0.09, -1.22);     // front sight
+    part(dark, 0.1, 0.3, 0.17, 0, -0.21, 0.02);     // magazine
+    part(dark, 0.1, 0.26, 0.13, 0, -0.19, 0.3);     // pistol grip
+    part(body, 0.13, 0.17, 0.42, 0, -0.03, 0.6);    // stock
+    part(trim, 0.18, 0.05, 0.22, 0, 0.07, 0.1);     // gold accent
+    part(dark, 0.06, 0.09, 0.07, 0, 0.13, 0.16);    // rear sight
+    part(hand, 0.15, 0.15, 0.22, 0.01, -0.13, -0.52); // support hand
+    part(hand, 0.14, 0.16, 0.16, 0.01, -0.24, 0.29);  // trigger hand
+
+    const flash = new THREE.Mesh(
+      new THREE.ConeGeometry(0.14, 0.34, 6),
+      new THREE.MeshBasicMaterial({ color: 0xffd873, transparent: true, opacity: 0.9 })
+    );
+    flash.rotation.x = -Math.PI / 2;
+    flash.position.set(0, 0.02, -1.45);
+    flash.visible = false;
+    group.add(flash);
+
+    const base = { x: 0.23, y: -0.21, z: -0.5 };
+    group.position.set(base.x, base.y, base.z);
+    group.rotation.y = 0.05;
+    return { group, flash, base };
   }
 
   // ------------------------------------------------------------------- HUD
@@ -508,16 +873,21 @@
     const centre = el("position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-weight:900;font-size:2.2rem;text-shadow:0 3px 10px rgba(0,0,0,0.9);text-align:center;");
     const damageVignette = el("position:absolute;inset:0;box-shadow:inset 0 0 90px rgba(233,69,96,0.9);opacity:0;transition:opacity 220ms;");
 
+    const buffRow = el("position:absolute;bottom:44px;left:14px;display:flex;gap:6px;font-size:0.68rem;font-weight:900;letter-spacing:1px;");
+    const toastEl = el("position:absolute;bottom:78px;left:50%;transform:translateX(-50%);font-size:1rem;font-weight:900;letter-spacing:2px;opacity:0;transition:opacity 200ms;text-shadow:0 2px 8px rgba(0,0,0,0.9);");
+
     const lockOverlay = el(
       "position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:0.6rem;background:rgba(11,16,32,0.86);cursor:pointer;pointer-events:auto;text-align:center;padding:1rem;",
       '<div style="font-size:1.5rem;font-weight:900;color:#f7c948;">Click to play</div>' +
       '<div style="font-size:0.85rem;color:#c9d2e3;line-height:1.8;">' +
       '<b>WASD</b> move &nbsp;·&nbsp; <b>Space</b> jump &nbsp;·&nbsp; <b>Mouse</b> aim<br>' +
-      '<b>Click</b> fire &nbsp;·&nbsp; <b>R</b> reload &nbsp;·&nbsp; <b>Esc</b> release cursor</div>'
+      '<b>Click</b> fire &nbsp;·&nbsp; <b>R</b> reload &nbsp;·&nbsp; <b>F</b> fullscreen &nbsp;·&nbsp; <b>Esc</b> release cursor<br>' +
+      '<span style="color:#8892a4">Grab the glowing pickups: health, ammo, 2\u00d7 damage, speed</span></div>'
     );
 
     let hitTimer = null;
     let dmgTimer = null;
+    let toastTimer = null;
     const feedItems = [];
 
     return {
@@ -529,6 +899,13 @@
         hitMarker.querySelectorAll("div").forEach((d) => { d.style.background = head ? "#f7c948" : "#fff"; });
         clearTimeout(hitTimer);
         hitTimer = setTimeout(() => { hitMarker.style.opacity = "0"; }, 130);
+      },
+      toast(text, color) {
+        toastEl.textContent = text;
+        toastEl.style.color = color || "#f7c948";
+        toastEl.style.opacity = "1";
+        clearTimeout(toastTimer);
+        toastTimer = setTimeout(() => { toastEl.style.opacity = "0"; }, 1400);
       },
       flashDamage() {
         damageVignette.style.opacity = "1";
@@ -556,6 +933,14 @@
           .join("");
       },
       update(st) {
+        const chips = [];
+        if (st.buffs && st.buffs.bd > 0) chips.push(["2\u00d7 DMG " + st.buffs.bd + "s", "#ff7a3d"]);
+        if (st.buffs && st.buffs.bs > 0) chips.push(["SPEED " + st.buffs.bs + "s", "#5dade2"]);
+        const markup = chips.map(([t, c]) =>
+          '<span style="padding:2px 7px;border-radius:4px;background:rgba(0,0,0,0.5);border:1px solid ' + c + ';color:' + c + '">' + t + '</span>'
+        ).join("");
+        if (buffRow.innerHTML !== markup) buffRow.innerHTML = markup;
+
         hpBar.style.width = Math.max(0, st.hp) + "%";
         hpBar.style.background = st.hp > 60 ? "#4ecca3" : st.hp > 25 ? "#f7c948" : "#e94560";
         ammoEl.innerHTML = st.reloading

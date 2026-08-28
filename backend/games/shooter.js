@@ -22,11 +22,17 @@ const EYE_HEIGHT = 1.35;
 const CHEST_HEIGHT = 0.9;
 const HEAD_HEIGHT = 1.5;
 const BOX_SHRINK = 0.06;         // stops corner-grazing rejecting fair shots
+const PICKUP_RADIUS = 2.6;       // how close a player must be to claim a pickup
+const PICKUP_RESPAWN_MS = 20000;
+const BUFF_MS = 12000;
+const DAMAGE_BUFF = 2;
+const HEALTH_PICKUP = 50;
 
 const COLORS = ["#f7c948", "#e94560", "#4ecca3", "#5dade2", "#af7ac5", "#ff8c42", "#42f5b0", "#f542e0"];
 
-// Pre-compute AABB min/max for line-of-sight tests.
-const AABBS = MAP.boxes.map((b) => ({
+// Pre-compute AABB min/max for line-of-sight tests. Decorative boxes
+// (foliage, glass, ground decals) are marked solid:false and never block a shot.
+const AABBS = MAP.boxes.filter((b) => b.solid !== false).map((b) => ({
   min: [b.pos[0] - b.size[0] / 2 + BOX_SHRINK, b.pos[1] - b.size[1] / 2 + BOX_SHRINK, b.pos[2] - b.size[2] / 2 + BOX_SHRINK],
   max: [b.pos[0] + b.size[0] / 2 - BOX_SHRINK, b.pos[1] + b.size[1] / 2 - BOX_SHRINK, b.pos[2] + b.size[2] / 2 - BOX_SHRINK],
 }));
@@ -67,6 +73,7 @@ class ShooterGame {
     this.io = io;
     this.onEnd = onEnd;
     this.players = new Map();
+    this.pickups = new Map();
     this.timer = null;
     this.startedAt = 0;
     this.ended = false;
@@ -86,6 +93,8 @@ class ShooterGame {
         rot: [0, 0],
         lastShot: 0,
         respawnAt: 0,
+        damageUntil: 0,
+        speedUntil: 0,
       });
     });
 
@@ -94,6 +103,10 @@ class ShooterGame {
     for (const p of this.players.values()) {
       p.pos = MAP.spawns[(i * 2) % MAP.spawns.length].slice();
       i++;
+    }
+
+    for (const pk of MAP.pickups) {
+      this.pickups.set(pk.id, { id: pk.id, type: pk.type, pos: pk.pos, readyAt: 0 });
     }
 
     this.startedAt = Date.now();
@@ -148,7 +161,36 @@ class ShooterGame {
       return;
     }
 
-    if (data.t === "hit") this.resolveHit(p, data);
+    if (data.t === "hit") return this.resolveHit(p, data);
+    if (data.t === "pickup") return this.resolvePickup(p, data);
+  }
+
+  resolvePickup(player, data) {
+    if (!player.alive || this.inCountdown()) return;
+    const pk = this.pickups.get(data.id);
+    if (!pk) return;
+
+    const now = Date.now();
+    if (now < pk.readyAt) return;                       // still respawning
+    if (dist(player.pos, pk.pos) > PICKUP_RADIUS) return; // claimed from too far away
+
+    if (pk.type === "health") {
+      if (player.hp >= MAX_HP) return;                  // no point burning it
+      player.hp = Math.min(MAX_HP, player.hp + HEALTH_PICKUP);
+    } else if (pk.type === "damage") {
+      player.damageUntil = now + BUFF_MS;
+    } else if (pk.type === "speed") {
+      player.speedUntil = now + BUFF_MS;
+    }
+    // "ammo" is purely a client-side magazine refill; the server just gates it.
+
+    pk.readyAt = now + PICKUP_RESPAWN_MS;
+    this.io.to(this.room.code).emit("shooter-pickup", {
+      id: pk.id,
+      type: pk.type,
+      by: player.name,
+      byId: player.id,
+    });
   }
 
   resolveHit(shooter, data) {
@@ -170,7 +212,8 @@ class ShooterGame {
     const head = [victim.pos[0], victim.pos[1] + HEAD_HEIGHT, victim.pos[2]];
     if (blocked(eye, chest) && blocked(eye, head)) return;
 
-    const damage = data.part === "head" ? HEAD_DAMAGE : BODY_DAMAGE;
+    let damage = data.part === "head" ? HEAD_DAMAGE : BODY_DAMAGE;
+    if (now < shooter.damageUntil) damage *= DAMAGE_BUFF;
     victim.hp -= damage;
 
     this.io.to(victim.id).emit("shooter-damaged", { from: shooter.name, hp: Math.max(0, victim.hp) });
@@ -208,6 +251,8 @@ class ShooterGame {
     p.pos = best.slice();
     p.hp = MAX_HP;
     p.alive = true;
+    p.damageUntil = 0;   // buffs die with you
+    p.speedUntil = 0;
     this.io.to(p.id).emit("shooter-spawn", { pos: p.pos, hp: MAX_HP });
   }
 
@@ -224,6 +269,7 @@ class ShooterGame {
       t: now,
       countdown: this.inCountdown() ? Math.ceil((COUNTDOWN_MS - elapsed) / 1000) : 0,
       timeLeft: Math.max(0, Math.ceil((ROUND_MS + COUNTDOWN_MS - elapsed) / 1000)),
+      pickups: [...this.pickups.values()].filter((pk) => now >= pk.readyAt).map((pk) => pk.id),
       players: [...this.players.values()].map((p) => ({
         id: p.id,
         name: p.name,
@@ -234,6 +280,8 @@ class ShooterGame {
         alive: p.alive,
         kills: p.kills,
         deaths: p.deaths,
+        bd: Math.max(0, Math.ceil((p.damageUntil - now) / 1000)),
+        bs: Math.max(0, Math.ceil((p.speedUntil - now) / 1000)),
       })),
     });
 
