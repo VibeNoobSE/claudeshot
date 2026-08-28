@@ -113,6 +113,7 @@ class ShooterGame {
         damageUntil: 0,
         speedUntil: 0,
         okr: false,
+        crouch: 0,
         logoPoints: 0,
         lastRegen: 0,
         lastSpawn: -1,
@@ -227,6 +228,7 @@ class ShooterGame {
       if (!data.p.every(Number.isFinite)) return;
       p.pos = data.p;
       if (Array.isArray(data.r) && data.r.length === 2 && data.r.every(Number.isFinite)) p.rot = data.r;
+      if (Number.isFinite(data.c)) p.crouch = Math.max(0, Math.min(1, data.c));
       return;
     }
 
@@ -286,9 +288,15 @@ class ShooterGame {
 
     // Line of sight: try the chest, then the head, before rejecting. Aiming at a
     // player peeking over cover legitimately clears one point but not the other.
-    const eye = [shooter.pos[0], shooter.pos[1] + EYE_HEIGHT, shooter.pos[2]];
-    const chest = [victim.pos[0], victim.pos[1] + CHEST_HEIGHT, victim.pos[2]];
-    const head = [victim.pos[0], victim.pos[1] + HEAD_HEIGHT, victim.pos[2]];
+    // Both are lowered when the target is ducked, and the shooter's own eye drops
+    // when they are - otherwise crouching would not actually take you out of a
+    // sightline, which is the whole point of it.
+    const eyeH = EYE_HEIGHT - 0.5 * shooter.crouch;
+    const chestH = CHEST_HEIGHT - 0.32 * victim.crouch;
+    const headH = HEAD_HEIGHT - 0.5 * victim.crouch;
+    const eye = [shooter.pos[0], shooter.pos[1] + eyeH, shooter.pos[2]];
+    const chest = [victim.pos[0], victim.pos[1] + chestH, victim.pos[2]];
+    const head = [victim.pos[0], victim.pos[1] + headH, victim.pos[2]];
     if (blocked(eye, chest) && blocked(eye, head)) return;
 
     let damage = data.part === "head" ? HEAD_DAMAGE : BODY_DAMAGE;
@@ -312,7 +320,7 @@ class ShooterGame {
 
     // Aim at a point just in front of the sign: signs hang on walls, and testing
     // the sign's own centre would be blocked by the wall carrying it.
-    const eye = [shooter.pos[0], shooter.pos[1] + EYE_HEIGHT, shooter.pos[2]];
+    const eye = [shooter.pos[0], shooter.pos[1] + EYE_HEIGHT - 0.5 * shooter.crouch, shooter.pos[2]];
     const dx = eye[0] - t.pos[0], dy = eye[1] - t.pos[1], dz = eye[2] - t.pos[2];
     const len = Math.sqrt(dx * dx + dy * dy + dz * dz) || 1;
     const face = [t.pos[0] + (dx / len) * 0.7, t.pos[1] + (dy / len) * 0.7, t.pos[2] + (dz / len) * 0.7];
@@ -413,6 +421,7 @@ class ShooterGame {
         color: p.color,
         p: p.pos,
         r: p.rot,
+        c: p.crouch,
         hp: p.hp,
         alive: p.alive,
         kills: p.kills,

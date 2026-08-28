@@ -30,6 +30,14 @@
   const SPEED_BUFF = 1.5;
   const PICKUP_REACH = 1.9;
   const CLAIM_COOLDOWN = 400;
+  const STAND_SEGMENT = 1.0;      // capsule segment when upright (eye at 1.35)
+  const CROUCH_SEGMENT = 0.5;     // and when ducked (eye at 0.85)
+  const CROUCH_SPEED = 0.45;      // movement scale while ducked
+  const ADS_FOV = 42;
+  const HIP_FOV = 78;
+  const ADS_SENS = 0.5;           // slower look while sighted
+  const ADS_SPREAD = 0.35;
+  const ADS_SPEED = 0.65;
 
   let session = null;
 
@@ -281,6 +289,10 @@
     let myUid = null;
     // recoil as a damped spring rather than random jitter
     let recoilP = 0, recoilVelP = 0, recoilY = 0, recoilVelY = 0, shotParity = 1;
+    let crouch = 0;         // 0 upright, 1 fully ducked
+    let wantCrouch = false;
+    let aiming = false;
+    let ads = 0;            // 0 hip, 1 sighted
     let inOkr = false;
     let okrPulse = 0;
     let okrRoll = 0;
@@ -313,14 +325,33 @@
       return scratchDir.cross(camera.up);
     }
 
+    // Standing up is refused when there is something overhead, otherwise you
+    // could uncrouch inside geometry and get shoved out of the world.
+    const standTest = new Capsule(new THREE.Vector3(), new THREE.Vector3(), PLAYER_RADIUS);
+    function canStand() {
+      standTest.start.copy(collider.start);
+      standTest.end.copy(collider.start);
+      standTest.end.y = collider.start.y + STAND_SEGMENT;
+      return !octree.capsuleIntersect(standTest);
+    }
+
+    function updateStance(dt) {
+      const target = wantCrouch || !canStand() ? 1 : 0;
+      crouch += (target - crouch) * (1 - Math.exp(-14 * dt));
+      if (crouch < 0.002) crouch = 0;
+      if (crouch > 0.998) crouch = 1;
+      collider.end.y = collider.start.y + STAND_SEGMENT - (STAND_SEGMENT - CROUCH_SEGMENT) * crouch;
+    }
+
     function applyInput(dt) {
       if (!alive || countdown > 0) return;
-      const accel = dt * (onFloor ? ACCEL_GROUND : ACCEL_AIR) * speedMul;
+      const stance = (1 - crouch * (1 - CROUCH_SPEED)) * (1 - ads * (1 - ADS_SPEED));
+      const accel = dt * (onFloor ? ACCEL_GROUND : ACCEL_AIR) * speedMul * stance;
       if (keys.KeyW || keys.ArrowUp) velocity.add(forwardVector().multiplyScalar(accel));
       if (keys.KeyS || keys.ArrowDown) velocity.add(forwardVector().multiplyScalar(-accel));
       if (keys.KeyA || keys.ArrowLeft) velocity.add(sideVector().multiplyScalar(-accel));
       if (keys.KeyD || keys.ArrowRight) velocity.add(sideVector().multiplyScalar(accel));
-      if (onFloor && keys.Space) velocity.y = JUMP_SPEED;
+      if (onFloor && keys.Space && crouch < 0.5) velocity.y = JUMP_SPEED;   // no jumping while ducked
     }
 
     function collide() {
@@ -447,6 +478,8 @@
         if (!a) { a = makeAvatar(p); avatars.set(key, a); }
         a.target.set(p.p[0], p.p[1], p.p[2]);
         a.yaw = p.r[0];
+        const duck = p.c || 0;
+        a.group.scale.y = 1 - 0.36 * duck;
         a.group.visible = p.alive;
         // exponential smoothing towards the last snapshot — no prediction needed
         const k = 1 - Math.exp(-16 * dt);
@@ -466,7 +499,9 @@
         bar.bg.visible = bar.fill.visible = visibleToMe;
         if (visibleToMe) {
           const frac = Math.max(0, Math.min(1, p.hp / maxHp));
-          const bx = a.group.position.x, by = a.group.position.y + 2.06, bz = a.group.position.z;
+          const bx = a.group.position.x;
+          const by = a.group.position.y + 2.06 - 0.62 * (p.c || 0);
+          const bz = a.group.position.z;
           bar.bg.position.set(bx, by, bz);
           bar.fill.scale.x = Math.max(0.001, bar.w * frac);
           camera.getWorldDirection(scratchDir);
@@ -755,7 +790,7 @@
       ammo--;
 
       camera.getWorldDirection(aimDir);
-      const spread = SPREAD * (inOkr ? 0.25 : 1);   // "clear visions" steadies your aim
+      const spread = SPREAD * (inOkr ? 0.25 : 1) * (1 - ads * (1 - ADS_SPREAD));
       aimDir.x += (Math.random() - 0.5) * spread;
       aimDir.y += (Math.random() - 0.5) * spread;
       aimDir.z += (Math.random() - 0.5) * spread;
@@ -827,6 +862,8 @@
     // ----------------------------------------------------------------- input
     s.on(document, "keydown", (e) => {
       keys[e.code] = true;
+      if (e.code === "ShiftLeft" || e.code === "ShiftRight" ||
+          e.code === "ControlLeft" || e.code === "ControlRight") wantCrouch = true;
       if (e.code === "KeyR") reload();
       if (e.code === "KeyF") {
         if (document.fullscreenElement) document.exitFullscreen();
@@ -834,19 +871,35 @@
       }
       if (locked && (e.code === "Space" || e.code.startsWith("Arrow"))) e.preventDefault();
     });
-    s.on(document, "keyup", (e) => { keys[e.code] = false; });
+    s.on(document, "keyup", (e) => {
+      keys[e.code] = false;
+      if (!(keys.ShiftLeft || keys.ShiftRight || keys.ControlLeft || keys.ControlRight)) wantCrouch = false;
+    });
     s.on(document, "mousemove", (e) => {
       if (!locked) return;
-      aimYaw -= e.movementX * LOOK_SENS;
-      aimPitch -= e.movementY * LOOK_SENS;
+      const sens = LOOK_SENS * (1 - ads * (1 - ADS_SENS));
+      aimYaw -= e.movementX * sens;
+      aimPitch -= e.movementY * sens;
       const limit = Math.PI / 2 * 0.98;
       aimPitch = Math.max(-limit, Math.min(limit, aimPitch));
     });
-    s.on(document, "mousedown", (e) => { if (locked && e.button === 0) firing = true; });
-    s.on(document, "mouseup", () => { firing = false; });
+    s.on(document, "mousedown", (e) => {
+      if (!locked) return;
+      if (e.button === 0) firing = true;
+      if (e.button === 2) aiming = true;
+    });
+    s.on(document, "mouseup", (e) => {
+      if (e.button === 2) aiming = false;
+      else firing = false;
+    });
     s.on(document, "pointerlockchange", () => {
       locked = document.pointerLockElement === renderer.domElement;
-      if (!locked) { firing = false; for (const k in keys) keys[k] = false; }
+      if (!locked) {
+        firing = false;
+        aiming = false;
+        wantCrouch = false;
+        for (const k in keys) keys[k] = false;
+      }
       hud.setLocked(locked);
     });
     s.on(hud.lockOverlay, "click", () => renderer.domElement.requestPointerLock());
@@ -963,29 +1016,35 @@
       s.socket.emit("shooter-input", {
         t: "state",
         p: [collider.start.x, collider.start.y - PLAYER_RADIUS, collider.start.z],
-        r: [camera.rotation.y, camera.rotation.x],
+        r: [aimYaw, aimPitch],
+        c: Math.round(crouch * 100) / 100,
       });
     }, SEND_MS);
     s.intervals.push(sendTimer);
 
     // ------------------------------------------------------- weapon animation
     const GUN_BASE = gun.base;
+    const GUN_ADS = { x: 0, y: -0.105, z: -0.34 };   // centred on the sights
     function updateGun(dt) {
       gun.group.visible = alive && countdown === 0;
       const now = performance.now();
       const moving = onFloor && Math.hypot(velocity.x, velocity.z) > 1.2;
       gunPhase += dt * (moving ? 9 : 2.4);
-      const amp = moving ? 0.014 : 0.004;
+      const amp = (moving ? 0.014 : 0.004) * (1 - ads * 0.85);   // steadier when sighted
       recoil = Math.max(0, recoil - dt * 6);
       // reload: swing the weapon down and back up over RELOAD_MS
       const remain = reloading ? Math.max(0, (reloadUntil - now) / RELOAD_MS) : 0;
       const tilt = reloading ? Math.sin(Math.PI * (1 - remain)) * 0.85 : 0;
+      // slide the weapon into the sight line as you aim down it
+      const bx = GUN_BASE.x + (GUN_ADS.x - GUN_BASE.x) * ads;
+      const by = GUN_BASE.y + (GUN_ADS.y - GUN_BASE.y) * ads;
+      const bz = GUN_BASE.z + (GUN_ADS.z - GUN_BASE.z) * ads;
       gun.group.position.set(
-        GUN_BASE.x + Math.sin(gunPhase) * amp,
-        GUN_BASE.y + Math.abs(Math.cos(gunPhase)) * amp * 0.8 - tilt * 0.13,
-        GUN_BASE.z + recoil * 0.1
+        bx + Math.sin(gunPhase) * amp,
+        by + Math.abs(Math.cos(gunPhase)) * amp * 0.8 - tilt * 0.13,
+        bz + recoil * 0.1
       );
-      gun.group.rotation.set(-recoil * 0.32 + tilt, 0.05 + tilt * 0.45, tilt * 0.3);
+      gun.group.rotation.set(-recoil * 0.32 + tilt, (0.05 + tilt * 0.45) * (1 - ads), tilt * 0.3);
       gun.flash.visible = now < flashUntil;
       if (gun.flash.visible) gun.flash.rotation.z = Math.random() * Math.PI;
     }
@@ -1015,12 +1074,16 @@
       camera.rotation.x = aimPitch + recoilP;
       camera.rotation.z = okrRoll + okrPulse * Math.sin(okrPulse * 14) * 0.12 - recoilY * 0.4;
       // lens push while the OKR effect plays, and a gentle widen while inside
-      const wantFov = 78 + (inOkr ? 3 : 0) + okrPulse * Math.sin(okrPulse * 11) * 9;
+      const baseFov = HIP_FOV + (ADS_FOV - HIP_FOV) * ads;
+      const wantFov = baseFov + (inOkr ? 3 : 0) + okrPulse * Math.sin(okrPulse * 11) * 9;
       if (Math.abs(camera.fov - wantFov) > 0.01) {
         camera.fov += (wantFov - camera.fov) * Math.min(1, dt * 7);
         camera.updateProjectionMatrix();
       }
       muzzleLight.intensity = Math.max(0, muzzleLight.intensity - dt * 34);
+
+      ads += ((aiming && alive && countdown === 0 ? 1 : 0) - ads) * (1 - Math.exp(-16 * dt));
+      updateStance(dt);
 
       const sub = dt / SUB_STEPS;
       for (let i = 0; i < SUB_STEPS; i++) {
@@ -1040,7 +1103,7 @@
       renderer.render(scene, camera);
       renderer.clearDepth();           // weapon pass — never clips into geometry
       renderer.render(viewScene, viewCamera);
-      hud.update({ hp, maxHp, ammo, reloading, countdown, timeLeft, alive, locked, deathMessage, buffs, inOkr, respawnIn });
+      hud.update({ hp, maxHp, ammo, reloading, countdown, timeLeft, alive, locked, deathMessage, buffs, inOkr, respawnIn, ads, crouch });
     }
     animate();
   }
@@ -1145,13 +1208,16 @@
     const toastEl = el("position:absolute;bottom:78px;left:50%;transform:translateX(-50%);font-size:1rem;font-weight:900;letter-spacing:2px;opacity:0;transition:opacity 200ms;text-shadow:0 2px 8px rgba(0,0,0,0.9);");
 
     const okrEl = el("position:absolute;top:30%;left:50%;transform:translateX(-50%) scale(0.7);opacity:0;transition:opacity 260ms,transform 260ms;text-align:center;white-space:nowrap;");
+    const adsVignette = el("position:absolute;inset:0;opacity:0;transition:opacity 120ms;box-shadow:inset 0 0 140px 40px rgba(0,0,0,0.85);");
+    const stanceEl = el("position:absolute;bottom:12px;left:214px;font-size:0.7rem;font-weight:900;letter-spacing:2px;color:#8892a4;opacity:0;transition:opacity 150ms;");
     const okrTint = el("position:absolute;inset:0;box-shadow:inset 0 0 120px rgba(126,224,192,0.55);opacity:0;transition:opacity 400ms;");
 
     const lockOverlay = el(
       "position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:0.6rem;background:rgba(11,16,32,0.86);cursor:pointer;pointer-events:auto;text-align:center;padding:1rem;",
       '<div style="font-size:1.5rem;font-weight:900;color:#f7c948;">Click to play</div>' +
       '<div style="font-size:0.85rem;color:#c9d2e3;line-height:1.8;">' +
-      '<b>WASD</b> move &nbsp;·&nbsp; <b>Space</b> jump &nbsp;·&nbsp; <b>Mouse</b> aim<br>' +
+      '<b>WASD</b> move &nbsp;·&nbsp; <b>Space</b> jump &nbsp;·&nbsp; <b>Shift/Ctrl</b> duck<br>' +
+      '<b>Right-click</b> aim down sights &nbsp;·&nbsp; <b>Mouse</b> look<br>' +
       '<b>Click</b> fire &nbsp;·&nbsp; <b>R</b> reload &nbsp;·&nbsp; <b>F</b> fullscreen &nbsp;·&nbsp; <b>Esc</b> release cursor<br>' +
       '<span style="color:#8892a4">Grab the glowing pickups: health, ammo, 2\u00d7 damage, speed</span></div>'
     );
@@ -1162,6 +1228,7 @@
     let okrTimer = null;
     let healTimer = null;
     const feedItems = [];
+    stanceEl.textContent = "DUCKED";
 
     return {
       lockOverlay,
@@ -1259,8 +1326,12 @@
       },
       update(st) {
         okrTint.style.opacity = st.inOkr ? "1" : "0";
-        crosshair.style.transform = st.inOkr ? "scale(0.55)" : "scale(1)";
+        const aimScale = (st.inOkr ? 0.55 : 1) * (1 - (st.ads || 0) * 0.75);
+        crosshair.style.transform = "scale(" + aimScale.toFixed(2) + ")";
+        crosshair.style.opacity = String(1 - (st.ads || 0) * 0.85);
         crosshair.style.filter = st.inOkr ? "drop-shadow(0 0 4px #7ee0c0)" : "none";
+        adsVignette.style.opacity = ((st.ads || 0) * 0.55).toFixed(2);
+        stanceEl.style.opacity = (st.crouch || 0) > 0.5 ? "1" : "0";
         const chips = [];
         if (st.inOkr) chips.push(["OKR \u00b7 +HEAL \u00b7 +AIM", "#7ee0c0"]);
         if (st.buffs && st.buffs.bd > 0) chips.push(["2\u00d7 DMG " + st.buffs.bd + "s", "#ff7a3d"]);
