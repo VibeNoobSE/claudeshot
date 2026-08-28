@@ -22,8 +22,9 @@
   const FIRE_MS = 115;
   const MAG_SIZE = 30;
   const RELOAD_MS = 1500;
-  const SPREAD = 0.005;
+  const SPREAD = 0.0018;      // near pinpoint; the kick provides the challenge
   const RANGE = 140;
+  const ASSIST_RADIUS = 0.5;  // forgiveness for the lag between drawn and true positions
   const SEND_MS = 50;
   const LOOK_SENS = 0.0022;
   const SPEED_BUFF = 1.5;
@@ -391,12 +392,12 @@
     function makeAvatar(p) {
       const group = new THREE.Group();
       const mat = new THREE.MeshLambertMaterial({ color: p.color });
-      const body = new THREE.Mesh(new THREE.BoxGeometry(0.72, 1.0, 0.45), mat);
-      body.position.y = 0.55;
-      body.userData = { playerId: p.id, part: "body" };
-      const head = new THREE.Mesh(new THREE.BoxGeometry(0.52, 0.52, 0.52), mat);
+      const body = new THREE.Mesh(new THREE.BoxGeometry(0.9, 1.16, 0.62), mat);
+      body.position.y = 0.6;
+      body.userData = { uid: p.uid, part: "body" };
+      const head = new THREE.Mesh(new THREE.BoxGeometry(0.58, 0.58, 0.58), mat);
       head.position.y = 1.36;
-      head.userData = { playerId: p.id, part: "head" };
+      head.userData = { uid: p.uid, part: "head" };
       const visor = new THREE.Mesh(
         new THREE.BoxGeometry(0.4, 0.14, 0.06),
         new THREE.MeshBasicMaterial({ color: 0x0b1020 })
@@ -636,6 +637,8 @@
     const raycaster = new THREE.Raycaster();
     raycaster.far = RANGE;
     const aimDir = new THREE.Vector3();
+    const assistTarget = new THREE.Vector3();
+    const assistDelta = new THREE.Vector3();
     const effects = [];
     const muzzleLight = new THREE.PointLight(0xffc879, 0, 15, 2);
     scene.add(muzzleLight);
@@ -708,22 +711,44 @@
         .addScaledVector(right, 0.17)
         .addScaledVector(camera.up, -0.13);
       tracer(muzzle, end);
-      recoil = Math.min(1.4, recoil + 0.95);
-      recoilVelP += 1.45;                                 // kick the view up
-      recoilVelY += 0.3 * shotParity;                     // and alternately aside
+      recoil = Math.min(1.4, recoil + 0.62);
+      recoilVelP += 0.8;                                  // kick the view up
+      recoilVelY += 0.1 * shotParity;                     // and slightly aside
       shotParity = -shotParity;
       flashUntil = performance.now() + 55;
       muzzleLight.position.copy(muzzle);
       muzzleLight.intensity = 5;
       const limit = Math.PI / 2 * 0.95;
-      aimPitch = Math.min(limit, aimPitch + 0.011);       // muzzle climb
+      aimPitch = Math.min(limit, aimPitch + 0.0025);      // a touch of muzzle climb
 
-      if (!hit) return;
-      impact(hit.point);
-      const victim = hit.object.userData.playerId;
+      if (hit) impact(hit.point);
+
+      let victim = hit && hit.object.userData.uid;
+      let part = hit && hit.object.userData.part;
+
+      // Aim assist. Remote players are drawn slightly behind their true position
+      // (snapshots arrive at 20Hz and are smoothed), so a shot that looks like a
+      // clean hit can sail past the box. Accept a near miss down the ray, as long
+      // as nothing solid is closer.
+      if (!victim) {
+        const worldDist = hit ? hit.distance : RANGE;
+        let best = null;
+        for (const [uid, a] of avatars) {
+          if (!a.group.visible) continue;
+          assistTarget.set(a.group.position.x, a.group.position.y + 0.75, a.group.position.z);
+          assistDelta.copy(assistTarget).sub(camera.position);
+          const along = assistDelta.dot(aimDir);
+          if (along <= 0.6 || along >= worldDist) continue;      // behind us, or behind cover
+          const perp = Math.sqrt(Math.max(0, assistDelta.lengthSq() - along * along));
+          if (perp > ASSIST_RADIUS) continue;
+          if (!best || along < best.along) best = { uid, along };
+        }
+        if (best) { victim = best.uid; part = "body"; }
+      }
+
       if (victim) {
-        hud.markHit(hit.object.userData.part === "head");
-        s.socket.emit("shooter-input", { t: "hit", victim, part: hit.object.userData.part });
+        hud.markHit(part === "head");
+        s.socket.emit("shooter-input", { t: "hit", victim, part });
       }
     }
 

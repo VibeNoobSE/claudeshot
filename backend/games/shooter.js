@@ -168,6 +168,14 @@ class ShooterGame {
     this.io.to(newId).emit("shooter-spawn", { pos: p.pos, hp: p.hp });
   }
 
+  // Hits are reported by uid, never socket id: sockets are re-created when a
+  // player moves from the lobby to the game page, which used to leave the
+  // client reporting an id the server no longer knew, so no shot ever landed.
+  playerByUid(uid) {
+    for (const p of this.players.values()) if (p.uid === uid) return p;
+    return null;
+  }
+
   elapsed() {
     return Date.now() - this.startedAt;
   }
@@ -223,7 +231,7 @@ class ShooterGame {
 
   resolveHit(shooter, data) {
     if (this.inCountdown()) return;
-    const victim = this.players.get(data.victim);
+    const victim = this.playerByUid(data.victim) || this.players.get(data.victim);
     if (!victim || victim === shooter) return;
     if (!shooter.alive || !victim.alive) return;
 
