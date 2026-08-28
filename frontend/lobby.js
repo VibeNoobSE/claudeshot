@@ -31,7 +31,7 @@ socket.on("game-started", () => {
   window.location.href = "game.html";
 });
 
-const GAME_NAMES = { snake: "🐍 Snake" };
+const GAME_NAMES = { snake: "🐍 Snake", hungry: "🍗 Hungry Lasse", shooter: "🔫 Shooter" };
 
 let gameSettings = {};
 
@@ -93,6 +93,39 @@ function renderRoom(room) {
     startBtn.disabled = !canStart;
     startBtn.textContent = canStart ? "Start Game" : "Waiting for players...";
   }
+}
+
+// ---- invite link ---------------------------------------------------------
+// Builds index.html?room=CODE&game=GAME, which pre-fills both for whoever opens it.
+function inviteLink(room) {
+  const url = new URL("index.html", window.location.href);
+  url.searchParams.set("room", room.code);
+  url.searchParams.set("game", room.game);
+  return url.toString();
+}
+
+const copyLinkBtn = document.getElementById("copy-link-btn");
+if (copyLinkBtn) {
+  copyLinkBtn.addEventListener("click", async () => {
+    const room = JSON.parse(sessionStorage.getItem("room") || "null");
+    if (!room) return;
+    const link = inviteLink(room);
+    let ok = false;
+    try {
+      await navigator.clipboard.writeText(link);
+      ok = true;
+    } catch (e) {
+      // clipboard API needs a secure context; fall back to selecting a hidden field
+      const field = document.getElementById("link-fallback");
+      if (field) {
+        field.value = link;
+        field.select();
+        try { ok = document.execCommand("copy"); } catch (e2) { ok = false; }
+      }
+    }
+    copyLinkBtn.textContent = ok ? "Link copied!" : "Press Ctrl+C to copy";
+    setTimeout(() => { copyLinkBtn.textContent = "Copy invite link"; }, 1900);
+  });
 }
 
 document.getElementById("start-btn").addEventListener("click", () => {
