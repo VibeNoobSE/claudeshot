@@ -700,6 +700,7 @@
       activePickups = new Set(state.pickups || []);
       const me = state.players.find((p) => p.id === s.socket.id);
       if (me) {
+        if (me.hp > hp && alive) hud.healTick(me.hp - hp);   // visible OKR regen
         hp = me.hp;
         if (alive && !me.alive) firing = false;
         alive = me.alive;
@@ -708,7 +709,7 @@
         const nowOkr = !!me.ok;
         if (nowOkr && !inOkr) {
           okrPulse = 1;
-          hud.okrBanner("OKR: CLEAR VISIONS ACTIVATED");
+          hud.okrBanner("OKR: CLEAR VISIONS ACTIVATED", "Healing \u00b7 Steady aim");
         }
         inOkr = nowOkr;
       }
@@ -868,7 +869,7 @@
       return d;
     }
 
-    const crosshair = el("position:absolute;left:50%;top:50%;width:18px;height:18px;margin:-9px 0 0 -9px;");
+    const crosshair = el("position:absolute;left:50%;top:50%;width:18px;height:18px;margin:-9px 0 0 -9px;transition:transform 220ms,filter 220ms;");
     crosshair.innerHTML =
       '<div style="position:absolute;left:8px;top:0;width:2px;height:6px;background:#f7c948;"></div>' +
       '<div style="position:absolute;left:8px;bottom:0;width:2px;height:6px;background:#f7c948;"></div>' +
@@ -880,6 +881,7 @@
       '<div style="position:absolute;left:0;top:0;width:22px;height:2px;background:#fff;transform:rotate(45deg);transform-origin:center;"></div>' +
       '<div style="position:absolute;left:0;top:0;width:22px;height:2px;background:#fff;transform:rotate(-45deg);transform-origin:center;"></div>';
 
+    const healEl = el("position:absolute;bottom:72px;left:14px;font-size:0.95rem;font-weight:900;color:#4ecca3;opacity:0;transition:opacity 200ms,transform 500ms;text-shadow:0 2px 6px rgba(0,0,0,0.9);");
     const timer = el("position:absolute;top:10px;left:50%;transform:translateX(-50%);font-weight:900;font-size:1.3rem;letter-spacing:1px;text-shadow:0 2px 6px rgba(0,0,0,0.8);");
     const board = el("position:absolute;top:10px;right:12px;font-size:0.8rem;font-weight:700;text-align:right;text-shadow:0 2px 6px rgba(0,0,0,0.8);line-height:1.5;");
     const feed = el("position:absolute;top:10px;left:12px;font-size:0.78rem;font-weight:700;text-shadow:0 2px 6px rgba(0,0,0,0.8);line-height:1.6;");
@@ -899,7 +901,7 @@
     const buffRow = el("position:absolute;bottom:44px;left:14px;display:flex;gap:6px;font-size:0.68rem;font-weight:900;letter-spacing:1px;");
     const toastEl = el("position:absolute;bottom:78px;left:50%;transform:translateX(-50%);font-size:1rem;font-weight:900;letter-spacing:2px;opacity:0;transition:opacity 200ms;text-shadow:0 2px 8px rgba(0,0,0,0.9);");
 
-    const okrEl = el("position:absolute;top:32%;left:50%;transform:translateX(-50%) scale(0.7);opacity:0;transition:opacity 260ms,transform 260ms;font-size:1.5rem;font-weight:900;letter-spacing:3px;color:#7ee0c0;text-shadow:0 0 18px rgba(126,224,192,0.9),0 3px 10px rgba(0,0,0,0.9);white-space:nowrap;");
+    const okrEl = el("position:absolute;top:30%;left:50%;transform:translateX(-50%) scale(0.7);opacity:0;transition:opacity 260ms,transform 260ms;text-align:center;white-space:nowrap;");
     const okrTint = el("position:absolute;inset:0;box-shadow:inset 0 0 120px rgba(126,224,192,0.55);opacity:0;transition:opacity 400ms;");
 
     const lockOverlay = el(
@@ -915,6 +917,7 @@
     let dmgTimer = null;
     let toastTimer = null;
     let okrTimer = null;
+    let healTimer = null;
     const feedItems = [];
 
     return {
@@ -927,8 +930,22 @@
         clearTimeout(hitTimer);
         hitTimer = setTimeout(() => { hitMarker.style.opacity = "0"; }, 130);
       },
-      okrBanner(text) {
-        okrEl.textContent = text;
+      healTick(amount) {
+        healEl.textContent = "+" + amount + " HP";
+        healEl.style.opacity = "1";
+        healEl.style.transform = "translateY(-10px)";
+        clearTimeout(healTimer);
+        healTimer = setTimeout(() => {
+          healEl.style.opacity = "0";
+          healEl.style.transform = "translateY(0)";
+        }, 500);
+      },
+      okrBanner(text, sub) {
+        okrEl.innerHTML =
+          '<div style="font-size:1.5rem;font-weight:900;letter-spacing:3px;color:#7ee0c0;' +
+          'text-shadow:0 0 18px rgba(126,224,192,0.9),0 3px 10px rgba(0,0,0,0.9)">' + esc(text) + '</div>' +
+          (sub ? '<div style="margin-top:0.3rem;font-size:0.95rem;font-weight:800;letter-spacing:2px;color:#e8ecf3;' +
+                 'text-shadow:0 2px 8px rgba(0,0,0,0.9)">' + esc(sub) + '</div>' : "");
         okrEl.style.opacity = "1";
         okrEl.style.transform = "translateX(-50%) scale(1)";
         clearTimeout(okrTimer);
@@ -971,8 +988,10 @@
       },
       update(st) {
         okrTint.style.opacity = st.inOkr ? "1" : "0";
+        crosshair.style.transform = st.inOkr ? "scale(0.55)" : "scale(1)";
+        crosshair.style.filter = st.inOkr ? "drop-shadow(0 0 4px #7ee0c0)" : "none";
         const chips = [];
-        if (st.inOkr) chips.push(["CLEAR VISIONS", "#7ee0c0"]);
+        if (st.inOkr) chips.push(["OKR \u00b7 +HEAL \u00b7 +AIM", "#7ee0c0"]);
         if (st.buffs && st.buffs.bd > 0) chips.push(["2\u00d7 DMG " + st.buffs.bd + "s", "#ff7a3d"]);
         if (st.buffs && st.buffs.bs > 0) chips.push(["SPEED " + st.buffs.bs + "s", "#5dade2"]);
         const markup = chips.map(([t, c]) =>

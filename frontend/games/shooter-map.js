@@ -247,7 +247,7 @@
   box(KX, 9.1, KZ + 3.6, 9, 1, 0.5, C.stone);                       // south
   box(KX + 4.6, 9.1, KZ - 0.5, 0.5, 1, 8, C.stone);                 // east
   box(KX - 4.6, 9.1, KZ + 1.0, 0.5, 1, 5, C.stone);                 // west, stops short of the corner
-  sign(KX, 5.4, KZ + 3.1, 6, 1.6, 0, BRAND.name, BRAND.accent, BRAND.color);
+  box(KX, 5.4, KZ + 3.15, 5.8, 1.7, 0.2, C.white);                  // panel for the 3D logo
 
   // Stair run up the west side of the courtyard. Its top step finishes level with
   // the keep roof (both at y=8.6) and their footprints touch, so you walk straight
@@ -317,8 +317,10 @@
     prop(MX + cx, 0.75, MZ + cz, 0.6, 1.0, 0.6, C.cubicle);
   }
   prop(MX - mwx + 0.4, 2.4, MZ, 0.12, 2.0, 4.5, C.white, { solid: false });
-  sign(MX, 4.5, MZ - mwz - 0.5, 4, 1.2, Math.PI, "OKR", "#f7c948", "#12324f");
-  sign(MX, 4.5, MZ + mwz + 0.5, 4, 1.2, 0, "OKR", "#f7c948", "#12324f");
+  sign(MX, 4.7, MZ - mwz - 0.5, 5, 1.2, Math.PI, "OKR ROOM", "#f7c948", "#12324f");
+  sign(MX, 4.7, MZ + mwz + 0.5, 5, 1.2, 0, "OKR ROOM", "#f7c948", "#12324f");
+  sign(MX, 3.7, MZ - mwz - 0.5, 6, 0.7, Math.PI, "HEAL + STEADY AIM", "#7ee0c0", "#0d2438");
+  sign(MX, 3.7, MZ + mwz + 0.5, 6, 0.7, 0, "HEAL + STEADY AIM", "#7ee0c0", "#0d2438");
 
   // plants, cooler, printer
   function plant(x, z) {
@@ -355,6 +357,7 @@
     { file: "assets/norli-logo.json", pos: [0, 3.4, -wz - 0.5], height: 1.9, depth: 0.35, rotY: Math.PI },
     { file: "assets/norli-logo.json", pos: [0, 3.4, wz + 0.5], height: 1.9, depth: 0.35 },
     { file: "assets/norli-logo.json", pos: [0, 7.8, 0], height: 2.2, depth: 0.4, spin: 0.4 },
+    { file: "assets/bookis-logo.json", pos: [0, 5.4, -22.85], height: 1.0, depth: 0.25 },
   ];
 
   // ================================================================= zones
