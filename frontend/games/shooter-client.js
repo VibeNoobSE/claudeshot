@@ -295,7 +295,10 @@
       velocity.set(0, 0, 0);
       camera.position.copy(collider.end);
     }
-    teleport([0, 0, 0]);
+    // Somewhere harmless until the server tells us where we really are. The
+    // origin is the centre of the Norli shop, i.e. inside the middle bookshelf.
+    teleport((MAP.spawns && MAP.spawns[0]) || [0, 0, 0]);
+    let spawned = false;
 
     function forwardVector() {
       camera.getWorldDirection(scratchDir);
@@ -839,6 +842,7 @@
     s.sock("shooter-you", ({ uid }) => { myUid = uid; });
 
     s.sock("shooter-spawn", ({ pos, hp: newHp }) => {
+      spawned = true;
       teleport(pos);
       hp = newHp;
       alive = true;
@@ -858,6 +862,10 @@
         hp = me.hp;
         if (alive && !me.alive) firing = false;
         alive = me.alive;
+        if (!spawned && me.alive && Array.isArray(me.p)) {
+          spawned = true;
+          teleport(me.p);
+        }
         respawnIn = me.rs || 0;
         buffs = { bd: me.bd || 0, bs: me.bs || 0 };
         speedMul = buffs.bs > 0 ? SPEED_BUFF : 1;
@@ -889,6 +897,8 @@
       const wasMe = victimUid ? victimUid === myUid : victimId === s.socket.id;
       if (wasMe) deathMessage = "Fragged by " + killer;
     });
+
+    s.socket.emit("shooter-input", { t: "ready" });
 
     const sendTimer = setInterval(() => {
       if (s.disposed) return;

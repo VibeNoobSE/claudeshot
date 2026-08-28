@@ -212,6 +212,14 @@ class ShooterGame {
       return;
     }
 
+    // The client loads three.js from a CDN before it can register socket
+    // handlers, so any spawn we pushed at game start or on reconnect arrived
+    // before anything was listening. It asks for its spawn when actually ready.
+    if (data.t === "ready") {
+      this.io.to(p.id).emit("shooter-you", { uid: p.uid });
+      this.io.to(p.id).emit("shooter-spawn", { pos: p.pos, hp: p.hp });
+      return;
+    }
     if (data.t === "hit") return this.resolveHit(p, data);
     if (data.t === "pickup") return this.resolvePickup(p, data);
   }
