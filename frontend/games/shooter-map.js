@@ -84,6 +84,10 @@
     boxes.push(Object.assign({ pos: [x, y, z], size: [w, h, d], color }, opts || {}));
   }
   const decal = (x, y, z, w, h, d, color) => box(x, y, z, w, h, d, color, { solid: false, edges: false });
+  // Rotated boxes are ALWAYS decorative: the server's line-of-sight test is an
+  // exact ray-vs-AABB check, which only holds while solids stay axis-aligned.
+  const crooked = (x, y, z, w, h, d, color, rot) =>
+    box(x, y, z, w, h, d, color, { solid: false, collide: false, edges: false, rot });
   const prop  = (x, y, z, w, h, d, color, o) => box(x, y, z, w, h, d, color, Object.assign({ edges: false }, o || {}));
 
   function sign(x, y, z, w, h, rotY, text, color, bg) {
@@ -103,11 +107,15 @@
 
   // ======================================================== ground and shell
   box(0, -0.5, 0, HALF * 2, 1, HALF * 2, C.plaza);            // base slab
-  decal(0, 0.03, -28, 88, 0.06, 34, C.grass);                  // north park lawn
-  decal(0, 0.04, -28, 6, 0.06, 34, C.path);                    // path through the park
-  decal(0, 0.03, 28, 88, 0.06, 34, C.carpet);                  // south office carpet
-  decal(-34, 0.03, 0, 24, 0.06, 26, C.path);                   // west plaza, in front of ARK
-  decal(34, 0.03, 0, 22, 0.06, 26, C.path);                    // east plaza
+  // Ground layers are stacked on distinct heights. Where two overlap at exactly
+  // the same height the depth buffer cannot separate them and the seam flickers
+  // violently as the camera moves - which is what the pavement did against the
+  // grass. Each layer sits a few centimetres above the one it overlaps.
+  decal(0, 0.03, -28, 88, 0.06, 34, C.grass);                  // north park lawn   (top 0.06)
+  decal(0, 0.03, 28, 88, 0.06, 34, C.carpet);                  // south office floor(top 0.06)
+  decal(-34, 0.06, 0, 24, 0.06, 26, C.path);                   // west plaza        (top 0.09)
+  decal(34, 0.06, 0, 22, 0.06, 26, C.path);                    // east plaza        (top 0.09)
+  decal(0, 0.09, -28, 6, 0.06, 34, C.path);                    // park path         (top 0.12)
 
   // ==================================================== city block boundary
   // The arena is bounded by a continuous street of building fronts rather than a
@@ -384,18 +392,19 @@
   box(8, 0.6, 33, 1.4, 1.2, 1, C.metal);      // printer
 
   // ======================================= ARK — the derelict bookshop (west)
-  // Half-collapsed: a blown-out north wall, a caved-in roof open to the sky, and
-  // a dead sign. The weirdness lives client-side: books orbiting the roof hole
-  // and a sign light that will not stay on.
+  // Squatted and falling down: roof caved in, north wall blown out, a camp set
+  // up inside. Anything crooked here is decorative (`rot` implies non-solid), so
+  // the server's exact axis-aligned hit maths is untouched.
   const AX = -34, AZ = 0, AH = 5.5, AT = 0.6;
 
-  decal(AX, 0.05, AZ, 16, 0.08, 14, C.concrete);                    // cracked slab
+  decal(AX, 0.14, AZ, 16, 0.08, 14, C.concrete);                    // cracked slab (top 0.18)
 
+  // --- shell -----------------------------------------------------------------
   // north wall, torn open in the middle
   box(-38.5, AH / 2, AZ - 7, 7, AH, AT, C.brickDark);
   box(-29, AH / 2, AZ - 7, 6, AH, AT, C.brickDark);
   box(-33.5, AH - 0.45, AZ - 7, 3, 0.9, AT, C.brickDark);           // lintel over the breach
-  prop(-34.6, 0.5, AZ - 6.2, 1.6, 1.0, 1.4, C.ash);                 // spill of rubble
+  prop(-34.6, 0.5, AZ - 6.2, 1.6, 1.0, 1.4, C.ash);                 // rubble spill
   prop(-33.2, 0.32, AZ - 5.4, 1.2, 0.65, 1.2, C.ash);
 
   // south wall with the doorway
@@ -407,35 +416,73 @@
   box(-42, AH / 2, AZ - 4, AT, AH, 6, C.brickDark);
   box(-42, 0.9, AZ + 3.5, AT, 1.8, 7, C.brickDark);
 
-  // east facade — the one that still stands, carrying the sign
-  box(-26, AH / 2, AZ, AT, AH, 14, C.brickDark);
-  for (const bz of [-4.5, -2.8, 3, 4.6]) {                          // boarded-up window
-    prop(-25.6, 2.6, AZ + bz, 0.14, 0.3, 3.2, C.wood, { solid: false });
-  }
+  // east facade, with a smashed shop window you can vault through
+  box(-26, AH / 2, AZ - 4.5, AT, AH, 5, C.brickDark);
+  box(-26, AH / 2, AZ + 4.5, AT, AH, 5, C.brickDark);
+  box(-26, 0.6, AZ, AT, 1.2, 4, C.brickDark);                       // sill, low enough to jump
+  box(-26, 4.5, AZ, AT, 2, 4, C.brickDark);                         // header
+  box(-24.2, 0.8, AZ + 1.4, 1.6, 1.6, 1.6, C.wood);                 // crate: a leg up to the window
   box(-25.8, 4.7, AZ + 2, 0.5, 0.22, 4.4, C.rust);                  // bracket the sign hangs from
 
-  // what is left of the roof, open to the sky over the south-east corner
+  // what is left of the roof, open over the south-east corner
   box(-38.5, AH + 0.3, AZ, 7, AT, 14, C.ash);
   box(-33.5, AH + 0.3, AZ - 4.5, 3, AT, 5, C.ash);
   prop(-31, AH + 0.3, AZ - 6, 2, AT, 2, C.ash);
   prop(-27.5, AH + 0.3, AZ + 5, 3, AT, 4, C.ash);
-  prop(-32.2, AH + 0.3, AZ - 1.6, 1.4, AT, 1.6, C.ash, { solid: false });   // hanging fragment
+  crooked(-32.2, 5.1, AZ - 1.4, 1.8, 0.25, 1.8, C.ash, [0.5, 0.3, 0.2]);   // fragment hanging by nothing
 
-  // interior: shelving down, stock everywhere
-  box(-38, 0.45, AZ - 3.5, 5, 0.9, 1.8, C.shelf);                   // toppled
-  box(-37, 0.45, AZ + 1.5, 1.8, 0.9, 5, C.shelf);                   // toppled
-  box(-39.1, 1.1, AZ - 6.35, 5.2, 2.2, 0.8, C.shelf);               // still standing, flush to both walls
+  // --- mezzanine: the fight has a second storey -------------------------------
+  box(-39, 2.8, AZ - 3.5, 6, 0.4, 7, C.wood);                       // deck, top at 3.0
+  box(-41.5, 3.4, AZ + 0.15, 1, 0.9, 0.3, C.rust);                  // railing, split to leave
+  box(-36.5, 3.4, AZ + 0.15, 1, 0.9, 0.3, C.rust);                  //   the stair head clear
+  box(-42.1, 3.4, AZ - 3.5, 0.3, 0.9, 7, C.rust);
+  stairs(-39, AZ + 4.4, 3.0, 4, 4, "z", -1, C.wood);                // tops out flush with the deck
+  prop(-36.6, 3.35, AZ - 5.5, 0.5, 0.7, 2.4, C.shelf, { solid: false });   // junk on the deck edge
+
+  // --- cover on the ground floor ---------------------------------------------
+  box(-38, 0.45, AZ - 3.5, 5, 0.9, 1.8, C.shelf);                   // toppled shelf
+  box(-36.5, 0.45, AZ + 3, 1.8, 0.9, 5, C.shelf);                   // toppled shelf
+  box(-30.5, 1.1, AZ - 5.2, 5, 2.2, 0.8, C.shelf);                  // one rack still upright
   box(-27.8, 1.5, AZ + 3.5, 0.9, 3.0, 3, C.shelf);                  // leaning on the facade
-  box(-30.5, 0.5, AZ - 4, 3.6, 1.0, 1.2, C.wood);                   // wrecked counter
+  box(-30.5, 0.5, AZ - 2, 3.6, 1.0, 1.2, C.wood);                   // wrecked counter
+  box(-31.5, 0.8, AZ + 4.5, 1.6, 1.6, 1.6, C.wood);                 // crate
+  box(-33.5, 0.55, AZ + 1.5, 2.2, 1.1, 1.4, C.ash);                 // rubble block, waist high
+
+  // --- the camp ---------------------------------------------------------------
+  crooked(-28.6, 1.5, AZ - 3, 3.4, 0.12, 3.0, "#3f6f8a", [0.16, 0.2, -0.28]);  // tarpaulin
+  crooked(-27.4, 0.9, AZ - 1.4, 2.2, 0.1, 2.6, "#4a7d96", [-0.5, 0.4, 0.22]);
+  prop(-29.4, 0.14, AZ - 3.6, 2.0, 0.28, 1.1, "#8a8f7c");                      // mattress
+  crooked(-29.6, 0.5, AZ - 4.6, 1.5, 0.4, 0.5, "#6b6f5e", [0, 0.3, 0.06]);     // bedroll
+  box(-31.8, 0.5, AZ - 6.2, 1.0, 1.0, 1.0, C.rust);                            // fire barrel
+  prop(-31.8, 1.1, AZ - 6.2, 0.8, 0.3, 0.8, "#ff8a3d", { solid: false });      // its glow
+  for (let i = 0; i < 5; i++) {                                                // cardboard, stacked badly
+    crooked(-28.2 + (i % 2) * 0.5, 0.35 + i * 0.62, AZ + 5.4 - (i % 3) * 0.4,
+            1.3, 0.6, 1.0, i % 2 ? "#a98153" : "#93704a", [0, 0.25 * i, 0.05 * (i % 3 - 1)]);
+  }
+  for (const [tx, tz] of [[-30.8, 6], [-32.4, 5.2], [-29.4, -6.4]]) {
+    prop(tx, 0.34, tz, 0.85, 0.68, 0.85, "#2b2f36", { solid: false });         // bin bags
+  }
+  // shopping trolley
+  prop(-33.8, 0.55, AZ + 5.6, 1.0, 0.7, 1.5, C.metal, { solid: false });
+  crooked(-33.8, 1.0, AZ + 6.3, 1.0, 0.55, 0.1, C.metal, [0.35, 0, 0]);
+  // planks leaning on the breach
+  crooked(-34.8, 1.6, AZ - 6.2, 0.3, 3.4, 0.14, C.wood, [0.42, 0.1, 0.2]);
+  crooked(-33.9, 1.5, AZ - 6.0, 0.28, 3.2, 0.14, C.wood, [-0.36, -0.2, -0.15]);
+  // graffiti on the standing walls
+  crooked(-25.62, 2.6, AZ - 4.5, 0.02, 1.2, 3.4, "#d94f7a", [0, 0, 0.05]);
+  crooked(-25.62, 3.4, AZ + 5, 0.02, 0.9, 2.6, "#4fd98f", [0, 0, -0.08]);
+  crooked(-38.4, 3.2, AZ - 6.65, 3.2, 1.0, 0.02, "#e0c33f", [0, 0, 0.04]);
+  // stock spilled across the floor
   const spill = [C.book1, C.book2, C.book3, C.book4];
   for (let i = 0; i < 26; i++) {
     const bx = AX - 7 + ((i * 37) % 130) / 10;
     const bz = AZ - 6 + ((i * 53) % 118) / 10;
-    prop(bx, 0.12, bz, 0.5, 0.16, 0.34, spill[i % 4], { solid: false });
+    crooked(bx, 0.12, bz, 0.5, 0.16, 0.34, spill[i % 4], [0, (i * 1.1) % 3.14, 0]);
   }
   // a stack of books that has no business standing up
   for (let i = 0; i < 13; i++) {
-    prop(-30.2 + i * 0.16, 0.28 + i * 0.34, AZ + 1.2 + i * 0.1, 0.62, 0.3, 0.44, spill[i % 4]);
+    crooked(-30.2 + i * 0.16, 0.28 + i * 0.34, AZ + 1.2 + i * 0.1, 0.62, 0.3, 0.44,
+            spill[i % 4], [0, i * 0.35, 0.05 * i]);
   }
 
   // ==================================================== street furniture
@@ -487,15 +534,19 @@
   // Real 3D geometry built from the logo artwork (see assets/*-logo.json).
   // Built and animated client-side; never collidable or shootable.
   const models = [
-    { file: "assets/bookis-logo.json", pos: [0, 11.9, -26], height: 1.7, depth: 0.5, spin: 0.5, ring: true },
-    { file: "assets/bookis-logo.json", pos: [0, 5.4, 36], height: 0.9, depth: 0.3, spin: 0.9 },
+    { file: "assets/bookis-logo.json", pos: [0, 11.9, -26], height: 1.7, depth: 0.5, spin: 0.5, ring: true,
+      target: { id: "bookis-keep", hp: 126, points: 3, radius: 2.2 } },
+    { file: "assets/bookis-logo.json", pos: [0, 5.4, 36], height: 0.9, depth: 0.3, spin: 0.9,
+      target: { id: "bookis-post", hp: 90, points: 2, radius: 1.4 } },
     { file: "assets/norli-logo.json", pos: [0, 3.4, -wz - 0.5], height: 1.9, depth: 0.35, rotY: Math.PI },
     { file: "assets/norli-logo.json", pos: [0, 3.4, wz + 0.5], height: 1.9, depth: 0.35 },
-    { file: "assets/norli-logo.json", pos: [0, 7.8, 0], height: 2.2, depth: 0.4, spin: 0.4 },
+    { file: "assets/norli-logo.json", pos: [0, 7.8, 0], height: 2.2, depth: 0.4, spin: 0.4,
+      target: { id: "norli-roof", hp: 126, points: 3, radius: 2.0 } },
     { file: "assets/bookis-logo.json", pos: [0, 5.4, -22.85], height: 1.0, depth: 0.25 },
     // ARK's sign still hangs on the one wall left standing, but not straight
     { file: "assets/ark-logo.json", pos: [-25.5, 3.5, 2], height: 2.8, depth: 0.35,
-      rotY: Math.PI / 2, rotZ: -0.16 },
+      rotY: Math.PI / 2, rotZ: -0.16,
+      target: { id: "ark-sign", hp: 108, points: 4, radius: 1.8 } },
   ];
 
   // ================================================================= zones

@@ -204,6 +204,7 @@
       if (b.opacity !== undefined) { matOpts.transparent = true; matOpts.opacity = b.opacity; }
       const mesh = new THREE.Mesh(geo, new THREE.MeshLambertMaterial(matOpts));
       mesh.position.set(b.pos[0], b.pos[1], b.pos[2]);
+      if (b.rot) mesh.rotation.set(b.rot[0], b.rot[1], b.rot[2]);   // decor only
 
       const blocksShots = b.solid !== false;
       const collides = b.collide !== undefined ? b.collide : blocksShots;
@@ -492,6 +493,8 @@
     // rectangle becomes an extruded box, merged per colour into a single mesh.
     const BRAND = MAP.brand || { name: "LOGO", color: "#c52c4c", accent: "#ffffff" };
     const spinners = [];
+    const logoTargets = new Map();
+    const targetMeshes = [];
 
     function buildLogoModel(data, height, depth) {
       const [gw, gh] = data.grid;
@@ -540,6 +543,11 @@
             scene.add(glow);
           }
           if (m.spin || ring) spinners.push({ mesh: model, ring, baseY: m.pos[1], spin: m.spin || 0 });
+
+          if (m.target) {
+            model.traverse((o) => { if (o.isMesh) { o.userData.targetId = m.target.id; targetMeshes.push(o); } });
+            logoTargets.set(m.target.id, { model, ring, pos: m.pos.slice(), broken: false });
+          }
         })
         .catch((err) => console.warn("[shooter] logo model failed to load", m.file, err));
     }
@@ -751,6 +759,7 @@
       raycaster.set(camera.position, aimDir);
 
       const targets = shotMeshes.slice();
+      for (const m of targetMeshes) if (m.visible && m.parent && m.parent.visible) targets.push(m);
       for (const [, a] of avatars) if (a.group.visible) targets.push(...a.meshes);
       const hits = raycaster.intersectObjects(targets, false);
       const hit = hits[0];
@@ -774,6 +783,13 @@
       aimPitch = Math.min(limit, aimPitch + 0.0025);      // a touch of muzzle climb
 
       if (hit) impact(hit.point);
+
+      const targetId = hit && hit.object.userData.targetId;
+      if (targetId) {
+        hud.markHit(false);
+        s.socket.emit("shooter-input", { t: "target", id: targetId });
+        return;
+      }
 
       let victim = hit && hit.object.userData.uid;
       let part = hit && hit.object.userData.part;
@@ -856,6 +872,16 @@
       countdown = state.countdown;
       timeLeft = state.timeLeft;
       activePickups = new Set(state.pickups || []);
+      if (state.targets) {
+        const up = new Set(state.targets);
+        for (const [id, t] of logoTargets) {
+          const shouldShow = up.has(id);
+          if (t.model.visible !== shouldShow) {
+            t.model.visible = shouldShow;
+            if (t.ring) t.ring.visible = shouldShow;
+          }
+        }
+      }
       const me = state.players.find(isMe);
       if (me) {
         if (me.hp > hp && alive) hud.healTick(me.hp - hp);   // visible OKR regen
@@ -883,6 +909,34 @@
       hp = newHp;
       hud.flashDamage(from);
     });
+
+    s.sock("shooter-target", ({ id, by, byUid, points, broken }) => {
+      const t = logoTargets.get(id);
+      if (!t) return;
+      t.broken = !!broken;
+      t.model.visible = !broken;
+      if (t.ring) t.ring.visible = !broken;
+      if (!broken) return;
+
+      // debris burst where the sign was
+      for (let i = 0; i < 14; i++) {
+        const piece = new THREE.Mesh(
+          new THREE.BoxGeometry(0.18 + Math.random() * 0.2, 0.14, 0.1),
+          new THREE.MeshLambertMaterial({ color: i % 2 ? 0xc52c4c : 0xf36000 })
+        );
+        piece.position.set(
+          t.pos[0] + (Math.random() - 0.5) * 1.6,
+          t.pos[1] + (Math.random() - 0.5) * 1.2,
+          t.pos[2] + (Math.random() - 0.5) * 1.6
+        );
+        piece.rotation.set(Math.random() * 3, Math.random() * 3, Math.random() * 3);
+        addEffect(piece, 900);
+      }
+      hud.addSignFeed(by, id, points);
+      if (byUid === myUid) hud.toast("+" + points + " SIGN SMASHED", "#f36000");
+    });
+
+    s.sock("shooter-target-hit", () => { hud.markHit(false); });
 
     s.sock("shooter-pickup", ({ id, type, byId, byUid }) => {
       activePickups.delete(id);
@@ -1167,6 +1221,15 @@
           blood.style.opacity = "0";
         }, 230);
       },
+      addSignFeed(who, id, points) {
+        feedItems.unshift(
+          '<span style="color:#4ecca3">' + esc(who) + '</span> smashed ' +
+          '<span style="color:#f36000">' + esc(id.split("-")[0].toUpperCase()) + '</span> ' +
+          '<span style="color:#f7c948">+' + points + '</span>'
+        );
+        if (feedItems.length > 5) feedItems.pop();
+        feed.innerHTML = feedItems.join("<br>");
+      },
       addFeed(killer, victim, headshot) {
         feedItems.unshift(
           '<span style="color:#4ecca3">' + esc(killer) + '</span> ' +
@@ -1177,15 +1240,18 @@
         feed.innerHTML = feedItems.join("<br>");
       },
       setScores(players, myUid, mySocketId) {
-        board.innerHTML = players
-          .slice()
-          .sort((a, b) => b.kills - a.kills || a.deaths - b.deaths)
-          .map((p) => {
-            const me = myUid ? p.uid === myUid : p.id === mySocketId;
-            return '<div style="color:' + (me ? "#f7c948" : "#c9d2e3") + '">' +
-              esc(p.name) + ' &nbsp;<b>' + p.kills + '</b> <span style="color:#8892a4">/ ' + p.deaths + '</span></div>';
-          })
-          .join("");
+        board.innerHTML = '<div style="color:#8892a4;font-size:0.68rem;letter-spacing:1px">PTS · KILLS · SIGNS</div>' +
+          players
+            .slice()
+            .sort((a, b) => (b.pts || 0) - (a.pts || 0) || b.kills - a.kills || a.deaths - b.deaths)
+            .map((p) => {
+              const me = myUid ? p.uid === myUid : p.id === mySocketId;
+              return '<div style="color:' + (me ? "#f7c948" : "#c9d2e3") + '">' +
+                esc(p.name) + ' &nbsp;<b>' + (p.pts || 0) + '</b> ' +
+                '<span style="color:#8892a4">· ' + p.kills + ' · </span>' +
+                '<span style="color:#f36000">' + (p.lp || 0) + '</span></div>';
+            })
+            .join("");
       },
       update(st) {
         okrTint.style.opacity = st.inOkr ? "1" : "0";

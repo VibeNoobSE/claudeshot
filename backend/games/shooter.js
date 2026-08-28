@@ -29,6 +29,8 @@ const DAMAGE_BUFF = 2;
 const HEALTH_PICKUP = 65;
 const OKR_REGEN_MS = 700;        // "clear visions": steady regen while in the OKR room
 const OKR_REGEN = 4;
+const KILL_POINTS = 3;
+const TARGET_RESPAWN_MS = 30000;   // a smashed sign is re-hung after 30s
 
 const COLORS = ["#f7c948", "#e94560", "#4ecca3", "#5dade2", "#af7ac5", "#ff8c42", "#42f5b0", "#f542e0"];
 
@@ -84,6 +86,7 @@ class ShooterGame {
     this.onEnd = onEnd;
     this.players = new Map();
     this.pickups = new Map();
+    this.targets = new Map();
     this.timer = null;
     this.startedAt = 0;
     this.ended = false;
@@ -110,6 +113,7 @@ class ShooterGame {
         damageUntil: 0,
         speedUntil: 0,
         okr: false,
+        logoPoints: 0,
         lastRegen: 0,
         lastSpawn: -1,
       });
@@ -144,6 +148,20 @@ class ShooterGame {
       p.pos = c.sp.slice();
       p.lastSpawn = c.idx;
       i++;
+    }
+
+    // Shootable signage. Smashing one scores, and it goes back up after a while.
+    for (const m of MAP.models || []) {
+      if (!m.target) continue;
+      this.targets.set(m.target.id, {
+        id: m.target.id,
+        pos: m.pos.slice(),
+        maxHp: m.target.hp,
+        hp: m.target.hp,
+        points: m.target.points,
+        radius: m.target.radius || 1.5,
+        readyAt: 0,
+      });
     }
 
     for (const pk of MAP.pickups) {
@@ -221,6 +239,7 @@ class ShooterGame {
       return;
     }
     if (data.t === "hit") return this.resolveHit(p, data);
+    if (data.t === "target") return this.resolveTarget(p, data);
     if (data.t === "pickup") return this.resolvePickup(p, data);
   }
 
@@ -281,6 +300,40 @@ class ShooterGame {
     if (victim.hp <= 0) this.killPlayer(shooter, victim, data.part === "head");
   }
 
+  resolveTarget(shooter, data) {
+    if (!shooter.alive || this.inCountdown()) return;
+    const t = this.targets.get(data.id);
+    if (!t || t.hp <= 0) return;
+
+    const now = Date.now();
+    if (now - shooter.lastShot < MIN_SHOT_INTERVAL) return;
+    shooter.lastShot = now;
+    if (dist(shooter.pos, t.pos) > MAX_RANGE) return;
+
+    // Aim at a point just in front of the sign: signs hang on walls, and testing
+    // the sign's own centre would be blocked by the wall carrying it.
+    const eye = [shooter.pos[0], shooter.pos[1] + EYE_HEIGHT, shooter.pos[2]];
+    const dx = eye[0] - t.pos[0], dy = eye[1] - t.pos[1], dz = eye[2] - t.pos[2];
+    const len = Math.sqrt(dx * dx + dy * dy + dz * dz) || 1;
+    const face = [t.pos[0] + (dx / len) * 0.7, t.pos[1] + (dy / len) * 0.7, t.pos[2] + (dz / len) * 0.7];
+    if (blocked(eye, face)) return;
+
+    let damage = BODY_DAMAGE;
+    if (now < shooter.damageUntil) damage *= DAMAGE_BUFF;
+    t.hp -= damage;
+
+    if (t.hp <= 0) {
+      t.hp = 0;
+      t.readyAt = now + TARGET_RESPAWN_MS;
+      shooter.logoPoints += t.points;
+      this.io.to(this.room.code).emit("shooter-target", {
+        id: t.id, by: shooter.name, byUid: shooter.uid, points: t.points, broken: true,
+      });
+    } else {
+      this.io.to(shooter.id).emit("shooter-target-hit", { id: t.id, hp: t.hp, maxHp: t.maxHp });
+    }
+  }
+
   killPlayer(killer, victim, headshot) {
     victim.hp = 0;
     victim.alive = false;
@@ -328,6 +381,13 @@ class ShooterGame {
     if (this.ended) return;
     const now = Date.now();
 
+    for (const t of this.targets.values()) {
+      if (t.hp <= 0 && now >= t.readyAt) {
+        t.hp = t.maxHp;
+        this.io.to(this.room.code).emit("shooter-target", { id: t.id, broken: false });
+      }
+    }
+
     for (const p of this.players.values()) {
       if (!p.alive && now >= p.respawnAt) { this.respawn(p); continue; }
       if (!p.alive) continue;
@@ -345,6 +405,7 @@ class ShooterGame {
       countdown: this.inCountdown() ? Math.ceil((COUNTDOWN_MS - elapsed) / 1000) : 0,
       timeLeft: Math.max(0, Math.ceil((ROUND_MS + COUNTDOWN_MS - elapsed) / 1000)),
       pickups: [...this.pickups.values()].filter((pk) => now >= pk.readyAt).map((pk) => pk.id),
+      targets: [...this.targets.values()].filter((t) => t.hp > 0).map((t) => t.id),
       players: [...this.players.values()].map((p) => ({
         id: p.id,
         uid: p.uid,
@@ -356,6 +417,8 @@ class ShooterGame {
         alive: p.alive,
         kills: p.kills,
         deaths: p.deaths,
+        lp: p.logoPoints,
+        pts: p.kills * KILL_POINTS + p.logoPoints,
         ok: p.okr ? 1 : 0,
         rs: p.alive ? 0 : Math.max(0, Math.ceil((p.respawnAt - now) / 1000)),
         bd: Math.max(0, Math.ceil((p.damageUntil - now) / 1000)),
@@ -370,7 +433,7 @@ class ShooterGame {
     if (this.ended) return;
     this.stop();
     const scores = [...this.players.values()]
-      .map((p) => ({ name: p.name, score: p.kills }))
+      .map((p) => ({ name: p.name, score: p.kills * KILL_POINTS + p.logoPoints }))
       .sort((a, b) => b.score - a.score);
     this.io.to(this.room.code).emit("shooter-over", { scores });
     this.onEnd(scores);
