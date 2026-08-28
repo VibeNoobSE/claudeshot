@@ -448,41 +448,79 @@
   box(-31.5, 0.8, AZ + 4.5, 1.6, 1.6, 1.6, C.wood);                 // crate
   box(-33.5, 0.55, AZ + 1.5, 2.2, 1.1, 1.4, C.ash);                 // rubble block, waist high
 
-  // --- the camp ---------------------------------------------------------------
-  crooked(-28.6, 1.5, AZ - 3, 3.4, 0.12, 3.0, "#3f6f8a", [0.16, 0.2, -0.28]);  // tarpaulin
-  crooked(-27.4, 0.9, AZ - 1.4, 2.2, 0.1, 2.6, "#4a7d96", [-0.5, 0.4, 0.22]);
-  prop(-29.4, 0.14, AZ - 3.6, 2.0, 0.28, 1.1, "#8a8f7c");                      // mattress
-  crooked(-29.6, 0.5, AZ - 4.6, 1.5, 0.4, 0.5, "#6b6f5e", [0, 0.3, 0.06]);     // bedroll
-  box(-31.8, 0.5, AZ - 6.2, 1.0, 1.0, 1.0, C.rust);                            // fire barrel
-  prop(-31.8, 1.1, AZ - 6.2, 0.8, 0.3, 0.8, "#ff8a3d", { solid: false });      // its glow
-  for (let i = 0; i < 5; i++) {                                                // cardboard, stacked badly
-    crooked(-28.2 + (i % 2) * 0.5, 0.35 + i * 0.62, AZ + 5.4 - (i % 3) * 0.4,
-            1.3, 0.6, 1.0, i % 2 ? "#a98153" : "#93704a", [0, 0.25 * i, 0.05 * (i % 3 - 1)]);
+  // --- the shelter ------------------------------------------------------------
+  // Someone lives here now. Sleeping bays are tucked under the mezzanine where
+  // there is still a roof, belongings are stacked rather than strewn, and the
+  // middle of the floor is deliberately kept clear so the room still plays.
+  function bay(x, z, i) {
+    prop(x, 0.17, z, 2.0, 0.3, 1.2, "#8a8f7c", { solid: false });               // mattress
+    crooked(x - 0.5, 0.5, z + 0.1, 1.2, 0.4, 0.55, "#6b6f5e", [0, 0.08 * i, 0.03]);  // bedroll
+    crooked(x + 1.15, 0.7, z, 0.08, 1.4, 1.25, "#a98153", [0, 0.04 * i, 0.02]);      // cardboard divider
+    prop(x - 0.95, 0.28, z - 0.8, 0.55, 0.56, 0.5, "#2b2f36", { solid: false });     // bagged belongings
+    crooked(x + 0.2, 0.42, z - 0.85, 0.42, 0.3, 0.32, "#5c6672", [0, 0.5 * i, 0]);   // tin mug, boots
   }
-  for (const [tx, tz] of [[-30.8, 6], [-32.4, 5.2], [-29.4, -6.4]]) {
-    prop(tx, 0.34, tz, 0.85, 0.68, 0.85, "#2b2f36", { solid: false });         // bin bags
+  bay(-39.4, AZ - 6.0, 0);
+  bay(-39.4, AZ - 3.9, 1);
+  bay(-39.4, AZ - 1.8, 2);
+
+  // the fire, and something to sit on
+  box(-32.6, 0.5, AZ + 4.3, 1.0, 1.0, 1.0, C.rust);                             // barrel, kept clear
+  prop(-32.6, 1.12, AZ + 4.3, 0.8, 0.3, 0.8, "#ff8a3d", { solid: false });      //   of the rubble block
+  for (const [sx, sz, r] of [[-34.4, 3.9, 0.3], [-31.2, 4.4, -0.4], [-33.4, 1.6, 0.2]]) {
+    crooked(sx, 0.3, AZ + sz, 0.85, 0.6, 0.85, C.wood, [0, r, 0]);              // upturned crates
   }
-  // shopping trolley
-  prop(-33.8, 0.55, AZ + 5.6, 1.0, 0.7, 1.5, C.metal, { solid: false });
-  crooked(-33.8, 1.0, AZ + 6.3, 1.0, 0.55, 0.1, C.metal, [0.35, 0, 0]);
+  prop(-31.4, 0.25, AZ + 2.2, 0.45, 0.5, 0.45, C.metal, { solid: false });      // camping stove
+  crooked(-34.6, 0.22, AZ + 2.4, 0.4, 0.44, 0.4, "#4a7d96", [0, 0.4, 0.05]);    // bucket
+  crooked(-31.0, 0.24, AZ + 5.2, 0.36, 0.48, 0.36, "#8a8f7c", [0, 0.9, 0.03]);  // jerrycan
+
+  // washing line strung from the mezzanine railing across to the facade
+  prop(-32, 2.45, AZ + 0.2, 12, 0.05, 0.05, "#4a4a4a", { solid: false });
+  for (let i = 0; i < 6; i++) {
+    crooked(-37 + i * 2.0, 2.05, AZ + 0.2, 0.7, 0.85, 0.06,
+            ["#8a8f7c", "#4a7d96", "#a98153", "#6b6f5e"][i % 4], [0, 0, 0.05 * (i % 3 - 1)]);
+  }
+
+  // a porch of tarpaulin over the smashed window
+  crooked(-27.6, 2.6, AZ + 0.4, 2.6, 0.1, 3.2, "#3f6f8a", [0.14, 0, -0.22]);
+  crooked(-28.9, 1.9, AZ - 1.3, 1.9, 0.09, 2.0, "#4a7d96", [-0.3, 0.35, 0.18]);
+
+  // stacked pallets and cardboard, kept against the walls
+  for (let i = 0; i < 4; i++) {
+    crooked(-28.6, 0.22 + i * 0.42, AZ + 5.4 - (i % 2) * 0.3, 1.3, 0.4, 1.0,
+            i % 2 ? "#a98153" : "#93704a", [0, 0.16 * i, 0.03 * (i % 3 - 1)]);
+  }
+  for (const [tx, tz] of [[-30.8, 6.2], [-32.2, 5.4]]) {
+    prop(tx, 0.34, tz, 0.85, 0.68, 0.85, "#2b2f36", { solid: false });          // bin bags
+  }
+  prop(-35.8, 0.55, AZ + 5.9, 1.1, 0.7, 1.6, C.metal, { solid: false });        // trolley
+  crooked(-35.8, 1.0, AZ + 6.6, 1.1, 0.55, 0.1, C.metal, [0.35, 0, 0]);
+
   // planks leaning on the breach
   crooked(-34.8, 1.6, AZ - 6.2, 0.3, 3.4, 0.14, C.wood, [0.42, 0.1, 0.2]);
   crooked(-33.9, 1.5, AZ - 6.0, 0.28, 3.2, 0.14, C.wood, [-0.36, -0.2, -0.15]);
+
   // graffiti on the standing walls
   crooked(-25.62, 2.6, AZ - 4.5, 0.02, 1.2, 3.4, "#d94f7a", [0, 0, 0.05]);
   crooked(-25.62, 3.4, AZ + 5, 0.02, 0.9, 2.6, "#4fd98f", [0, 0, -0.08]);
   crooked(-38.4, 3.2, AZ - 6.65, 3.2, 1.0, 0.02, "#e0c33f", [0, 0, 0.04]);
-  // stock spilled across the floor
+
+  // Stock swept into two piles rather than scattered over the whole floor: the
+  // litter looked chaotic and got in the way of moving through the room.
   const spill = [C.book1, C.book2, C.book3, C.book4];
-  for (let i = 0; i < 26; i++) {
-    const bx = AX - 7 + ((i * 37) % 130) / 10;
-    const bz = AZ - 6 + ((i * 53) % 118) / 10;
-    crooked(bx, 0.12, bz, 0.5, 0.16, 0.34, spill[i % 4], [0, (i * 1.1) % 3.14, 0]);
-  }
-  // a stack of books that has no business standing up
-  for (let i = 0; i < 13; i++) {
-    crooked(-30.2 + i * 0.16, 0.28 + i * 0.34, AZ + 1.2 + i * 0.1, 0.62, 0.3, 0.44,
-            spill[i % 4], [0, i * 0.35, 0.05 * i]);
+  const piles = [[-36.8, AZ + 2.6], [-29.6, AZ - 6.2]];
+  piles.forEach(([px, pz], p) => {
+    for (let i = 0; i < 7; i++) {
+      const a = i * 1.3 + p;
+      crooked(px + Math.cos(a) * (0.25 + i * 0.075), 0.12 + (i % 3) * 0.16,
+              pz + Math.sin(a) * (0.25 + i * 0.075), 0.5, 0.15, 0.34,
+              spill[i % 4], [0, a, 0.04 * (i % 3 - 1)]);
+    }
+  });
+
+  // one stack that has no business standing up
+  for (let i = 0; i < 11; i++) {
+    crooked(-31.4 + i * 0.14, 0.28 + i * 0.33, AZ - 3.4 + i * 0.09, 0.6, 0.29, 0.42,
+            spill[i % 4], [0, i * 0.36, 0.045 * i]);
   }
 
   // ==================================================== street furniture
@@ -561,7 +599,7 @@
   const lights = [
     { pos: [-25.3, 4.3, 2], color: C.ark, intensity: 3.2, distance: 20, flicker: true },
     { pos: [-36, 3.4, 1], color: "#8fd8ff", intensity: 0.9, distance: 16 },
-    { pos: [-30, 1.4, 3], color: "#ff7a3d", intensity: 0.7, distance: 9, flicker: true },
+    { pos: [-32.6, 1.5, 4.3], color: "#ff7a3d", intensity: 1.1, distance: 11, flicker: true },
   ];
 
   // =============================================================== effects
