@@ -27,6 +27,8 @@ const PICKUP_RESPAWN_MS = 20000;
 const BUFF_MS = 12000;
 const DAMAGE_BUFF = 2;
 const HEALTH_PICKUP = 50;
+const OKR_REGEN_MS = 700;        // "clear visions": steady regen while in the OKR room
+const OKR_REGEN = 4;
 
 const COLORS = ["#f7c948", "#e94560", "#4ecca3", "#5dade2", "#af7ac5", "#ff8c42", "#42f5b0", "#f542e0"];
 
@@ -36,6 +38,14 @@ const AABBS = MAP.boxes.filter((b) => b.solid !== false).map((b) => ({
   min: [b.pos[0] - b.size[0] / 2 + BOX_SHRINK, b.pos[1] - b.size[1] / 2 + BOX_SHRINK, b.pos[2] - b.size[2] / 2 + BOX_SHRINK],
   max: [b.pos[0] + b.size[0] / 2 - BOX_SHRINK, b.pos[1] + b.size[1] / 2 - BOX_SHRINK, b.pos[2] + b.size[2] / 2 - BOX_SHRINK],
 }));
+
+const OKR_ZONE = (MAP.zones || []).find((z) => z.id === "okr") || null;
+
+function inZone(pos, z) {
+  return pos[0] >= z.min[0] && pos[0] <= z.max[0] &&
+         pos[1] >= z.min[1] - 1.2 && pos[1] <= z.max[1] &&
+         pos[2] >= z.min[2] && pos[2] <= z.max[2];
+}
 
 function dist(a, b) {
   const dx = a[0] - b[0], dy = a[1] - b[1], dz = a[2] - b[2];
@@ -95,6 +105,8 @@ class ShooterGame {
         respawnAt: 0,
         damageUntil: 0,
         speedUntil: 0,
+        okr: false,
+        lastRegen: 0,
       });
     });
 
@@ -261,7 +273,14 @@ class ShooterGame {
     const now = Date.now();
 
     for (const p of this.players.values()) {
-      if (!p.alive && now >= p.respawnAt) this.respawn(p);
+      if (!p.alive && now >= p.respawnAt) { this.respawn(p); continue; }
+      if (!p.alive) continue;
+      // OKR room: standing inside heals you steadily (the client tightens your aim)
+      p.okr = !!(OKR_ZONE && inZone(p.pos, OKR_ZONE));
+      if (p.okr && p.hp < MAX_HP && now - p.lastRegen >= OKR_REGEN_MS) {
+        p.hp = Math.min(MAX_HP, p.hp + OKR_REGEN);
+        p.lastRegen = now;
+      }
     }
 
     const elapsed = this.elapsed();
@@ -280,6 +299,7 @@ class ShooterGame {
         alive: p.alive,
         kills: p.kills,
         deaths: p.deaths,
+        ok: p.okr ? 1 : 0,
         bd: Math.max(0, Math.ceil((p.damageUntil - now) / 1000)),
         bs: Math.max(0, Math.ceil((p.speedUntil - now) / 1000)),
       })),

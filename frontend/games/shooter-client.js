@@ -87,15 +87,17 @@
   async function boot(s, socket, myId, room) {
     s.socket = socket;
 
-    const [THREE, octreeMod, capsuleMod] = await Promise.all([
+    const [THREE, octreeMod, capsuleMod, geoUtils] = await Promise.all([
       import("three"),
       import("three/addons/math/Octree.js"),
       import("three/addons/math/Capsule.js"),
+      import("three/addons/utils/BufferGeometryUtils.js"),
     ]);
     if (s.disposed) return;
 
     const { Octree } = octreeMod;
     const { Capsule } = capsuleMod;
+    const { mergeGeometries } = geoUtils;
     const MAP = window.SHOOTER_MAP;
 
     // ---------------------------------------------------------------- layout
@@ -265,6 +267,14 @@
     let speedMul = 1;
     let gunPhase = 0;
     let recoil = 0;
+    // Aim is held separately from camera.rotation so screen shake can be layered
+    // on top without permanently dragging your crosshair off target.
+    let aimYaw = 0;
+    let aimPitch = 0;
+    let shakeAmt = 0;
+    let inOkr = false;
+    let okrPulse = 0;
+    let okrRoll = 0;
     let reloadUntil = 0;
     let flashUntil = 0;
     let timeLeft = 0;
@@ -400,96 +410,70 @@
       }
     }
 
-    // ------------------------------------------------------------- landmarks
-    // Spinning company sign. Faces show a drawn wordmark by default; if a real
-    // logo image exists at MAP.brand.texture it replaces them once it loads.
-    const BRAND = MAP.brand || { name: "LOGO", color: "#0e7c6b", accent: "#ffffff" };
+    // -------------------------------------------------------------- 3D logos
+    // Real geometry built from the logo artwork in assets/*-logo.json: every
+    // rectangle becomes an extruded box, merged per colour into a single mesh.
+    const BRAND = MAP.brand || { name: "LOGO", color: "#c52c4c", accent: "#ffffff" };
     const spinners = [];
-    const brandFaceMats = [];
 
-    function brandWordmark() {
-      const cv = document.createElement("canvas");
-      cv.width = 512; cv.height = 224;
-      const ctx = cv.getContext("2d");
-      const grad = ctx.createLinearGradient(0, 0, 0, cv.height);
-      grad.addColorStop(0, BRAND.color);
-      grad.addColorStop(1, BRAND.dark || BRAND.color);
-      ctx.fillStyle = grad;
-      ctx.fillRect(0, 0, cv.width, cv.height);
-      ctx.strokeStyle = "rgba(255,255,255,0.25)";
-      ctx.lineWidth = 10;
-      ctx.strokeRect(5, 5, cv.width - 10, cv.height - 10);
-      ctx.fillStyle = BRAND.accent;
-      ctx.font = "900 108px Nunito, sans-serif";
-      ctx.textAlign = "center";
-      ctx.textBaseline = "middle";
-      ctx.fillText(BRAND.name, cv.width / 2, cv.height / 2 + 4);
-      return new THREE.CanvasTexture(cv);
+    function buildLogoModel(data, height, depth) {
+      const [gw, gh] = data.grid;
+      const unit = height / gh;
+      const group = new THREE.Group();
+      data.colors.forEach((hex, ci) => {
+        const parts = [];
+        for (const r of data.rects) {
+          if (r[4] !== ci) continue;
+          const g = new THREE.BoxGeometry(r[2] * unit, r[3] * unit, depth);
+          // image space is y-down; flip it and centre the model on its own origin
+          g.translate((r[0] + r[2] / 2 - gw / 2) * unit, -(r[1] + r[3] / 2 - gh / 2) * unit, 0);
+          parts.push(g);
+        }
+        if (!parts.length) return;
+        const merged = mergeGeometries(parts, false);
+        parts.forEach((g) => g.dispose());
+        group.add(new THREE.Mesh(merged, new THREE.MeshLambertMaterial({ color: hex })));
+      });
+      return group;
     }
 
-    for (const lm of MAP.landmarks || []) {
-      const front = new THREE.MeshLambertMaterial({ map: brandWordmark(), emissive: 0x223333, emissiveIntensity: 0.4 });
-      const backTex = brandWordmark();
-      backTex.wrapS = THREE.RepeatWrapping;
-      backTex.repeat.x = -1;              // mirror so the reverse face reads correctly
-      backTex.offset.x = 1;
-      const back = new THREE.MeshLambertMaterial({ map: backTex, emissive: 0x223333, emissiveIntensity: 0.4 });
-      const side = new THREE.MeshLambertMaterial({ color: BRAND.color });
-      brandFaceMats.push(front, back);
-
-      const mesh = new THREE.Mesh(
-        new THREE.BoxGeometry(lm.size[0], lm.size[1], lm.size[2]),
-        [side, side, side, side, front, back]
-      );
-      mesh.position.set(lm.pos[0], lm.pos[1], lm.pos[2]);
-      scene.add(mesh);
-
-      let ring = null;
-      if (lm.ring) {
-        ring = new THREE.Mesh(
-          new THREE.TorusGeometry(lm.size[0] * 0.72, 0.09, 8, 32),
-          new THREE.MeshBasicMaterial({ color: BRAND.accent, transparent: true, opacity: 0.65 })
-        );
-        ring.rotation.x = Math.PI / 2;
-        ring.position.copy(mesh.position);
-        scene.add(ring);
-        const glow = new THREE.PointLight(new THREE.Color(BRAND.color), 1.6, 22);
-        glow.position.copy(mesh.position);
-        scene.add(glow);
-      }
-      spinners.push({ mesh, ring, baseY: lm.pos[1], spin: lm.spin || 0.5 });
-    }
-
-    // swap in the real logo image if one has been dropped into frontend/assets
-    if (BRAND.texture && brandFaceMats.length) {
-      new THREE.TextureLoader().load(
-        BRAND.texture,
-        (tex) => {
+    for (const m of MAP.models || []) {
+      fetch(m.file)
+        .then((r) => r.json())
+        .then((data) => {
           if (s.disposed) return;
-          brandFaceMats.forEach((m, i) => {
-            const t = i % 2 === 0 ? tex : tex.clone();
-            if (i % 2 === 1) {
-              t.wrapS = THREE.RepeatWrapping;
-              t.repeat.x = -1;
-              t.offset.x = 1;
-              t.needsUpdate = true;
-            }
-            m.map = t;
-            m.needsUpdate = true;
-          });
-        },
-        undefined,
-        () => { /* no logo file yet — the drawn wordmark stays */ }
-      );
+          const model = buildLogoModel(data, m.height, m.depth);
+          model.position.set(m.pos[0], m.pos[1], m.pos[2]);
+          model.rotation.y = m.rotY || 0;
+          scene.add(model);
+
+          let ring = null;
+          if (m.ring) {
+            ring = new THREE.Mesh(
+              new THREE.TorusGeometry(m.height * 2.1, 0.08, 8, 32),
+              new THREE.MeshBasicMaterial({ color: BRAND.color, transparent: true, opacity: 0.7 })
+            );
+            ring.rotation.x = Math.PI / 2;
+            ring.position.copy(model.position);
+            scene.add(ring);
+            const glow = new THREE.PointLight(new THREE.Color(BRAND.color), 1.5, 24);
+            glow.position.copy(model.position);
+            scene.add(glow);
+          }
+          if (m.spin || ring) spinners.push({ mesh: model, ring, baseY: m.pos[1], spin: m.spin || 0 });
+        })
+        .catch((err) => console.warn("[shooter] logo model failed to load", m.file, err));
     }
 
-    function updateLandmarks(dt) {
-      const bob = Math.sin(performance.now() / 900) * 0.18;
+    function updateModels(dt) {
+      const bob = Math.sin(performance.now() / 900) * 0.16;
       for (const sp of spinners) {
-        sp.mesh.rotation.y += dt * sp.spin;
-        sp.mesh.position.y = sp.baseY + bob;
+        if (sp.spin) {
+          sp.mesh.rotation.y += dt * sp.spin;
+          sp.mesh.position.y = sp.baseY + bob;
+        }
         if (sp.ring) {
-          sp.ring.rotation.z -= dt * sp.spin * 1.8;
+          sp.ring.rotation.z -= dt * 0.9;
           sp.ring.position.y = sp.baseY + bob * 0.5;
         }
       }
@@ -574,6 +558,8 @@
     raycaster.far = RANGE;
     const aimDir = new THREE.Vector3();
     const effects = [];
+    const muzzleLight = new THREE.PointLight(0xffc879, 0, 15, 2);
+    scene.add(muzzleLight);
 
     function addEffect(obj, ms) {
       scene.add(obj);
@@ -623,9 +609,10 @@
       ammo--;
 
       camera.getWorldDirection(aimDir);
-      aimDir.x += (Math.random() - 0.5) * SPREAD;
-      aimDir.y += (Math.random() - 0.5) * SPREAD;
-      aimDir.z += (Math.random() - 0.5) * SPREAD;
+      const spread = SPREAD * (inOkr ? 0.25 : 1);   // "clear visions" steadies your aim
+      aimDir.x += (Math.random() - 0.5) * spread;
+      aimDir.y += (Math.random() - 0.5) * spread;
+      aimDir.z += (Math.random() - 0.5) * spread;
       aimDir.normalize();
       raycaster.set(camera.position, aimDir);
 
@@ -642,9 +629,13 @@
         .addScaledVector(right, 0.17)
         .addScaledVector(camera.up, -0.13);
       tracer(muzzle, end);
-      recoil = Math.min(1, recoil + 0.55);
-      flashUntil = performance.now() + 45;
-      camera.rotation.x = Math.min(Math.PI / 2 * 0.95, camera.rotation.x + 0.006);
+      recoil = Math.min(1.4, recoil + 0.95);
+      shakeAmt = Math.min(1.5, shakeAmt + 0.62);          // kick the whole view
+      flashUntil = performance.now() + 55;
+      muzzleLight.position.copy(muzzle);
+      muzzleLight.intensity = 5;
+      const limit = Math.PI / 2 * 0.95;
+      aimPitch = Math.min(limit, aimPitch + 0.011);       // muzzle climb
 
       if (!hit) return;
       impact(hit.point);
@@ -668,10 +659,10 @@
     s.on(document, "keyup", (e) => { keys[e.code] = false; });
     s.on(document, "mousemove", (e) => {
       if (!locked) return;
-      camera.rotation.y -= e.movementX * LOOK_SENS;
-      camera.rotation.x -= e.movementY * LOOK_SENS;
+      aimYaw -= e.movementX * LOOK_SENS;
+      aimPitch -= e.movementY * LOOK_SENS;
       const limit = Math.PI / 2 * 0.98;
-      camera.rotation.x = Math.max(-limit, Math.min(limit, camera.rotation.x));
+      aimPitch = Math.max(-limit, Math.min(limit, aimPitch));
     });
     s.on(document, "mousedown", (e) => { if (locked && e.button === 0) firing = true; });
     s.on(document, "mouseup", () => { firing = false; });
@@ -708,6 +699,12 @@
         alive = me.alive;
         buffs = { bd: me.bd || 0, bs: me.bs || 0 };
         speedMul = buffs.bs > 0 ? SPEED_BUFF : 1;
+        const nowOkr = !!me.ok;
+        if (nowOkr && !inOkr) {
+          okrPulse = 1;
+          hud.okrBanner("OKR: CLEAR VISIONS ACTIVATED");
+        }
+        inOkr = nowOkr;
       }
       hud.setScores(state.players, s.socket.id);
     });
@@ -767,6 +764,26 @@
     function animate() {
       s.raf = requestAnimationFrame(animate);
       const dt = Math.min(0.05, clock.getDelta());
+
+      // Camera orientation = aim + decaying shake. Squaring the shake makes it
+      // snap hard on the shot and settle quickly rather than wobbling on.
+      shakeAmt = Math.max(0, shakeAmt - dt * 3.4);
+      const sh = shakeAmt * shakeAmt;
+      okrPulse = Math.max(0, okrPulse - dt * 0.5);
+      const targetRoll = inOkr ? Math.sin(performance.now() / 620) * 0.045 : 0;
+      okrRoll += (targetRoll - okrRoll) * Math.min(1, dt * 3);
+      camera.rotation.y = aimYaw + (Math.random() - 0.5) * 0.055 * sh;
+      camera.rotation.x = aimPitch + (Math.random() - 0.5) * 0.055 * sh;
+      camera.rotation.z = okrRoll + okrPulse * Math.sin(okrPulse * 14) * 0.12
+                        + (Math.random() - 0.5) * 0.05 * sh;
+      // lens push while the OKR effect plays, and a gentle widen while inside
+      const wantFov = 78 + (inOkr ? 3 : 0) + okrPulse * Math.sin(okrPulse * 11) * 9;
+      if (Math.abs(camera.fov - wantFov) > 0.01) {
+        camera.fov += (wantFov - camera.fov) * Math.min(1, dt * 7);
+        camera.updateProjectionMatrix();
+      }
+      muzzleLight.intensity = Math.max(0, muzzleLight.intensity - dt * 34);
+
       const sub = dt / SUB_STEPS;
       for (let i = 0; i < SUB_STEPS; i++) {
         applyInput(sub);
@@ -774,7 +791,7 @@
       }
       updateAvatars(dt);
       updatePickups(dt);
-      updateLandmarks(dt);
+      updateModels(dt);
       if (firing) fire();
       updateEffects();
       updateGun(dt);
@@ -782,7 +799,7 @@
       renderer.render(scene, camera);
       renderer.clearDepth();           // weapon pass — never clips into geometry
       renderer.render(viewScene, viewCamera);
-      hud.update({ hp, ammo, reloading, countdown, timeLeft, alive, locked, deathMessage, buffs });
+      hud.update({ hp, ammo, reloading, countdown, timeLeft, alive, locked, deathMessage, buffs, inOkr });
     }
     animate();
   }
@@ -876,6 +893,9 @@
     const buffRow = el("position:absolute;bottom:44px;left:14px;display:flex;gap:6px;font-size:0.68rem;font-weight:900;letter-spacing:1px;");
     const toastEl = el("position:absolute;bottom:78px;left:50%;transform:translateX(-50%);font-size:1rem;font-weight:900;letter-spacing:2px;opacity:0;transition:opacity 200ms;text-shadow:0 2px 8px rgba(0,0,0,0.9);");
 
+    const okrEl = el("position:absolute;top:32%;left:50%;transform:translateX(-50%) scale(0.7);opacity:0;transition:opacity 260ms,transform 260ms;font-size:1.5rem;font-weight:900;letter-spacing:3px;color:#7ee0c0;text-shadow:0 0 18px rgba(126,224,192,0.9),0 3px 10px rgba(0,0,0,0.9);white-space:nowrap;");
+    const okrTint = el("position:absolute;inset:0;box-shadow:inset 0 0 120px rgba(126,224,192,0.55);opacity:0;transition:opacity 400ms;");
+
     const lockOverlay = el(
       "position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:0.6rem;background:rgba(11,16,32,0.86);cursor:pointer;pointer-events:auto;text-align:center;padding:1rem;",
       '<div style="font-size:1.5rem;font-weight:900;color:#f7c948;">Click to play</div>' +
@@ -888,6 +908,7 @@
     let hitTimer = null;
     let dmgTimer = null;
     let toastTimer = null;
+    let okrTimer = null;
     const feedItems = [];
 
     return {
@@ -899,6 +920,16 @@
         hitMarker.querySelectorAll("div").forEach((d) => { d.style.background = head ? "#f7c948" : "#fff"; });
         clearTimeout(hitTimer);
         hitTimer = setTimeout(() => { hitMarker.style.opacity = "0"; }, 130);
+      },
+      okrBanner(text) {
+        okrEl.textContent = text;
+        okrEl.style.opacity = "1";
+        okrEl.style.transform = "translateX(-50%) scale(1)";
+        clearTimeout(okrTimer);
+        okrTimer = setTimeout(() => {
+          okrEl.style.opacity = "0";
+          okrEl.style.transform = "translateX(-50%) scale(0.7)";
+        }, 2200);
       },
       toast(text, color) {
         toastEl.textContent = text;
@@ -933,7 +964,9 @@
           .join("");
       },
       update(st) {
+        okrTint.style.opacity = st.inOkr ? "1" : "0";
         const chips = [];
+        if (st.inOkr) chips.push(["CLEAR VISIONS", "#7ee0c0"]);
         if (st.buffs && st.buffs.bd > 0) chips.push(["2\u00d7 DMG " + st.buffs.bd + "s", "#ff7a3d"]);
         if (st.buffs && st.buffs.bs > 0) chips.push(["SPEED " + st.buffs.bs + "s", "#5dade2"]);
         const markup = chips.map(([t, c]) =>

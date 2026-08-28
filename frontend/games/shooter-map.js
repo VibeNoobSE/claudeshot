@@ -58,10 +58,10 @@
   // automatically for the spinning sign faces; otherwise the wordmark is drawn.
   const BRAND = {
     name: "BOOKIS",
-    color: "#0e7c6b",
+    color: "#c52c4c",   // crimson from the logo mark
+    ink: "#1b1b1b",
     accent: "#ffffff",
-    dark: "#0a2f2a",
-    texture: "assets/bookis-logo.png",
+    dark: "#7d1a2f",
   };
 
   const HALF = 40;
@@ -132,10 +132,12 @@
   box(0, SHOP_H + 1.2, -wz - 0.2, SHOP_W + 1, 1.2, 0.5, C.stone);
   box(0, SHOP_H + 1.2, wz + 0.2, SHOP_W + 1, 1.2, 0.5, C.stone);
   box(-wx - 0.2, SHOP_H + 1.2, 0, 0.5, 1.2, SHOP_D + 1, C.stone);
-  box(wx + 0.2, SHOP_H + 1.2, 0, 0.5, 1.2, SHOP_D + 1, C.stone);
+  box(wx + 0.2, SHOP_H + 1.2, -5.35, 0.5, 1.2, 6.3, C.stone);  // east parapet, split
+  box(wx + 0.2, SHOP_H + 1.2, 5.35, 0.5, 1.2, 6.3, C.stone);   //   to leave a stair doorway
 
-  sign(0, 3.3, -wz - 0.35, 9, 2, Math.PI, "NORLI", "#f7c948", C.signBg);
-  sign(0, 3.3, wz + 0.35, 9, 2, 0, "NORLI", "#f7c948", C.signBg);
+  // fascia panels the 3D "norli" wordmarks are mounted on
+  box(0, 3.4, -wz - 0.3, 11, 2.6, 0.2, C.white);
+  box(0, 3.4, wz + 0.3, 11, 2.6, 0.2, C.white);
   sign(0, 6.6, -wz - 0.55, 7, 1, Math.PI, "BOKHANDEL", "#c9d2e3", "#0d2438");
 
   // shelving inside — the interior is a maze of aisles
@@ -167,9 +169,10 @@
     prop(tx, 1.0, tz, 1.6, 0.2, 0.9, C.book2, { solid: false });
   }
 
-  // outdoor staircase up to the roof, on the east side
-  stairs(wx + 1.6, 0, SHOP_H + 0.6, 6, 4, "x", 1, C.stone);
-  box(wx + 0.9, SHOP_H + 0.3, 0, 1.6, 0.4, 4, C.stone);        // landing onto the roof
+  // Outdoor staircase up to the roof on the east side. It climbs WESTWARD so the
+  // top tread finishes flush against the roof edge (both at y=5.6) — climbing the
+  // other way tops out in mid-air, which is what stranded players before.
+  stairs(wx + 7.1, 0, SHOP_H + 0.6, 6, 4, "x", -1, C.stone);
 
   // ================================================= north: park / outdoors
   function tree(x, z, s) {
@@ -201,22 +204,27 @@
   const KX = 0, KZ = -26, CW = 18, CD = 14, CWALL = 4;
   const cwx = CW / 2, cwz = CD / 2;
 
-  decal(KX, 0.06, KZ, CW, 0.1, CD, C.stone);                        // courtyard
-  box(KX, CWALL / 2, KZ - cwz, CW, CWALL, 1, C.stone);              // north wall
-  box(KX - 5.5, CWALL / 2, KZ + cwz, 7, CWALL, 1, C.stone);         // south wall,
-  box(KX + 5.5, CWALL / 2, KZ + cwz, 7, CWALL, 1, C.stone);         //   split for a gate
-  box(KX, CWALL - 0.5, KZ + cwz, 4, 1, 1, C.stone);                 // gate arch
-  box(KX - cwx, CWALL / 2, KZ, 1, CWALL, CD, C.stone);              // west wall
-  box(KX + cwx, CWALL / 2, KZ, 1, CWALL, CD, C.stone);              // east wall
+  // Walls are 1.8 thick so the rampart is genuinely walkable: the merlons sit on
+  // the outer 0.6 and leave a 1.2 walkway inside. At 1.0 thick the merlons filled
+  // the whole wall top and the rampart could not be walked at all.
+  const WT = 1.8, CRO = WT / 2 - 0.3;
 
-  // crenellations along the wall tops (cover for anyone on the ramparts)
+  decal(KX, 0.06, KZ, CW, 0.1, CD, C.stone);                        // courtyard
+  box(KX, CWALL / 2, KZ - cwz, CW, CWALL, WT, C.stone);             // north wall
+  box(KX - 5.5, CWALL / 2, KZ + cwz, 7, CWALL, WT, C.stone);        // south wall,
+  box(KX + 5.5, CWALL / 2, KZ + cwz, 7, CWALL, WT, C.stone);        //   split for a gate
+  box(KX, CWALL - 0.5, KZ + cwz, 4, 1, WT, C.stone);                // gate arch
+  box(KX - cwx, CWALL / 2, KZ, WT, CWALL, CD, C.stone);             // west wall
+  box(KX + cwx, CWALL / 2, KZ, WT, CWALL, CD, C.stone);             // east wall
+
+  // crenellations, hugging the outer edge so the walkway stays clear
   for (let i = -8; i <= 8; i += 2) {
-    prop(KX + i, CWALL + 0.35, KZ - cwz, 1, 0.7, 1, C.stone);
-    if (Math.abs(i) > 2) prop(KX + i, CWALL + 0.35, KZ + cwz, 1, 0.7, 1, C.stone);
+    prop(KX + i, CWALL + 0.35, KZ - cwz - CRO, 1, 0.7, 0.6, C.stone);
+    if (Math.abs(i) > 2) prop(KX + i, CWALL + 0.35, KZ + cwz + CRO, 1, 0.7, 0.6, C.stone);
   }
   for (let i = -6; i <= 6; i += 2) {
-    prop(KX - cwx, CWALL + 0.35, KZ + i, 1, 0.7, 1, C.stone);
-    prop(KX + cwx, CWALL + 0.35, KZ + i, 1, 0.7, 1, C.stone);
+    prop(KX - cwx - CRO, CWALL + 0.35, KZ + i, 0.6, 0.7, 1, C.stone);
+    prop(KX + cwx + CRO, CWALL + 0.35, KZ + i, 0.6, 0.7, 1, C.stone);
   }
 
   // corner turrets, capped in the brand colour
@@ -232,15 +240,24 @@
   // the keep
   box(KX, 4, KZ, 8, 8, 6, C.stone);
   box(KX, 8.3, KZ, 9, 0.6, 7, C.stone);
-  for (const [ox, oz, w, d] of [[0, -3.6, 9, 0.5], [0, 3.6, 9, 0.5], [-4.6, 0, 0.5, 7], [4.6, 0, 0.5, 7]]) {
-    box(KX + ox, 9.1, KZ + oz, w, 1, d, C.stone);                   // roof parapet
+  // Roof parapet. The west run stops short of the north-west corner, leaving a
+  // doorway where the stair landing meets the roof — otherwise the parapet walls
+  // off the only way up.
+  for (const [ox, oz, w, d] of [[0, -3.6, 9, 0.5], [0, 3.6, 9, 0.5], [4.6, 0, 0.5, 7]]) {
+    box(KX + ox, 9.1, KZ + oz, w, 1, d, C.stone);
   }
+  box(KX - 4.6, 9.1, KZ + 1.0, 0.5, 1, 5, C.stone);                 // west parapet, short
   sign(KX, 5.4, KZ + 3.1, 6, 1.6, 0, BRAND.name, BRAND.accent, BRAND.color);
 
-  // stair run up the west side of the courtyard, with a landing onto the ramparts
+  // Stair run up the west side of the courtyard. Its top step finishes level with
+  // the keep roof (both at y=8.6) and their footprints touch, so you walk straight
+  // across — no landing slab, which is what used to block the top of the stairs.
   stairs(KX - 6, KZ + 5.5, 8.6, 9, 3, "z", -1, C.stone);
-  box(KX - 6, 8.6, KZ - 3, 3, 0.35, 4, C.stone);                    // bridge to the keep roof
-  box(KX - 7.4, 4.2, KZ + 0.5, 2.2, 0.35, 2.2, C.stone);            // step-off onto the ramparts
+  box(KX - 6, 8.3, KZ - 2.5, 3, 0.6, 2, C.stone);                   // landing alongside the roof
+
+  // separate short flight on the east side up to the rampart walk
+  stairs(KX + 6, KZ + 5.5, 4, 4, 3, "z", -1, C.stone);
+  box(KX + 8, 3.825, KZ + 1.65, 1, 0.35, 1.4, C.stone);             // flush step onto the wall top
 
   // hedges as mid-park cover
   box(-20, 0.75, -12, 10, 1.5, 1.2, C.hedge);
@@ -266,18 +283,42 @@
   box(13, 0.85, 19, 0.3, 1.7, 8, C.cubicle);
   box(0, 0.85, 30, 20, 1.7, 0.3, C.cubicle);
 
-  // glass meeting pod
-  const MX = 0, MZ = 20;
-  box(MX, 0.15, MZ, 11, 0.3, 8, C.white);
-  for (const [ox, oz, w, d] of [[0, -4, 11, 0.3], [-5.5, 0, 0.3, 8], [5.5, 0, 0.3, 8]]) {
-    prop(MX + ox, 1.6, MZ + oz, w, 3.2, d, C.glass, { solid: false, collide: true, opacity: 0.3 });
+  // ------------------------------------------------------------- OKR room
+  // Waist-high sills with a wide open window band above them: you can shoot in
+  // from anywhere in the office, and shoot out from inside, over every side.
+  const MX = 0, MZ = 20, MW = 12, MD = 9;
+  const mwx = MW / 2, mwz = MD / 2;
+  box(MX, 0.15, MZ, MW, 0.3, MD, C.white);                       // raised floor
+  decal(MX, 0.31, MZ, MW - 0.6, 0.06, MD - 0.6, "#5b6c94");      // rug
+
+  // sills, split to leave a door gap on the north and south faces
+  for (const oz of [-mwz, mwz]) {
+    box(MX - 3.9, 0.65, MZ + oz, 3.6, 1.0, 0.3, C.white);
+    box(MX + 3.9, 0.65, MZ + oz, 3.6, 1.0, 0.3, C.white);
   }
-  prop(MX - 3.6, 1.6, MZ + 4, 3.5, 3.2, 0.3, C.glass, { solid: false, collide: true, opacity: 0.3 });
-  prop(MX + 3.6, 1.6, MZ + 4, 3.5, 3.2, 0.3, C.glass, { solid: false, collide: true, opacity: 0.3 });
-  box(MX, 3.4, MZ, 11.4, 0.3, 8.4, C.white);
-  box(MX, 0.65, MZ, 5, 0.15, 2.2, C.desk);
-  prop(MX, 0.33, MZ, 4, 0.65, 1.6, C.metal);
-  sign(MX, 3.9, MZ - 4.2, 5, 0.9, Math.PI, "MEETING", "#c9d2e3", "#1b2438");
+  box(MX - mwx, 0.65, MZ, 0.3, 1.0, MD, C.white);
+  box(MX + mwx, 0.65, MZ, 0.3, 1.0, MD, C.white);
+
+  // corner posts and roof — the band between sill and roof is open air
+  for (const [ox, oz] of [[-mwx, -mwz], [mwx, -mwz], [-mwx, mwz], [mwx, mwz]]) {
+    box(MX + ox, 2.0, MZ + oz, 0.4, 3.7, 0.4, C.metal);
+  }
+  box(MX, 3.95, MZ, MW + 0.8, 0.3, MD + 0.8, C.white);
+  // a few glass panes remain on the short sides; shootable, not walkable
+  for (const ox of [-mwx, mwx]) {
+    prop(MX + ox, 2.4, MZ - 2.6, 0.2, 2.5, 3, C.glass, { solid: false, collide: true, opacity: 0.28 });
+    prop(MX + ox, 2.4, MZ + 2.6, 0.2, 2.5, 3, C.glass, { solid: false, collide: true, opacity: 0.28 });
+  }
+
+  // boardroom table, chairs, whiteboard
+  box(MX, 0.75, MZ, 5.5, 0.15, 2.4, C.desk);
+  prop(MX, 0.45, MZ, 4.6, 0.75, 1.7, C.metal);
+  for (const [cx, cz] of [[-2, -2], [0, -2], [2, -2], [-2, 2], [0, 2], [2, 2]]) {
+    prop(MX + cx, 0.75, MZ + cz, 0.6, 1.0, 0.6, C.cubicle);
+  }
+  prop(MX - mwx + 0.4, 2.4, MZ, 0.12, 2.0, 4.5, C.white, { solid: false });
+  sign(MX, 4.5, MZ - mwz - 0.5, 4, 1.2, Math.PI, "OKR", "#f7c948", "#12324f");
+  sign(MX, 4.5, MZ + mwz + 0.5, 4, 1.2, 0, "OKR", "#f7c948", "#12324f");
 
   // plants, cooler, printer
   function plant(x, z) {
@@ -305,11 +346,22 @@
   // freestanding spinning logo on a post at the south entrance
   box(0, 2.2, 36, 0.5, 4.4, 0.5, C.metal, { edges: false });
 
-  // ============================================================== landmarks
-  // Animated client-side: these spin. Not collidable, not shootable.
-  const landmarks = [
-    { type: "logo", pos: [0, 11.6, -26], size: [6.4, 2.8, 0.5], spin: 0.5, ring: true },
-    { type: "logo", pos: [0, 5.4, 36], size: [3.4, 1.5, 0.35], spin: 0.9, ring: false },
+  // ================================================================ models
+  // Real 3D geometry built from the logo artwork (see assets/*-logo.json).
+  // Built and animated client-side; never collidable or shootable.
+  const models = [
+    { file: "assets/bookis-logo.json", pos: [0, 11.8, -26], height: 2.6, depth: 0.55, spin: 0.5, ring: true },
+    { file: "assets/bookis-logo.json", pos: [0, 5.4, 36], height: 1.4, depth: 0.35, spin: 0.9 },
+    { file: "assets/norli-logo.json", pos: [0, 3.4, -wz - 0.5], height: 1.9, depth: 0.35, rotY: Math.PI },
+    { file: "assets/norli-logo.json", pos: [0, 3.4, wz + 0.5], height: 1.9, depth: 0.35 },
+    { file: "assets/norli-logo.json", pos: [0, 7.8, 0], height: 2.2, depth: 0.4, spin: 0.4 },
+  ];
+
+  // ================================================================= zones
+  // Standing inside grants the OKR buff: the server heals you, the client
+  // tightens your aim. Same box read by both, so they can never disagree.
+  const zones = [
+    { id: "okr", min: [MX - mwx, 0.3, MZ - mwz], max: [MX + mwx, 4.0, MZ + mwz] },
   ];
 
   // ================================================================= spawns
@@ -340,7 +392,8 @@
     brand: BRAND,
     boxes,
     signs,
-    landmarks,
+    models,
+    zones,
     spawns,
     pickups,
   };
