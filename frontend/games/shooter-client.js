@@ -579,11 +579,15 @@
       const group = new THREE.Group();
       group.position.set(fx.pos[0], fx.pos[1], fx.pos[2]);
       group.rotation.x = fx.tilt || 0;
+      const palette = fx.colors || BOOK_COLORS;
       for (let i = 0; i < fx.count; i++) {
         const ang = (i / fx.count) * Math.PI * 2;
         const book = new THREE.Mesh(
-          new THREE.BoxGeometry(0.52, 0.15, 0.38),
-          new THREE.MeshLambertMaterial({ color: BOOK_COLORS[i % BOOK_COLORS.length] })
+          new THREE.BoxGeometry(0.42, 0.02, 0.3),
+          new THREE.MeshLambertMaterial({
+            color: palette[i % palette.length],
+            side: THREE.DoubleSide,
+          })
         );
         book.position.set(Math.cos(ang) * fx.radius, Math.sin(i * 1.7) * 0.35, Math.sin(ang) * fx.radius);
         book.rotation.set(i * 0.7, -ang, i * 0.4);
