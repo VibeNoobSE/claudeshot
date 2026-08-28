@@ -115,18 +115,34 @@ class ShooterGame {
       });
     });
 
-    // Shuffle the spawn list, then deal one to each player: spread out, but a
-    // different arrangement every round rather than a fixed seating plan.
-    const order = MAP.spawns.map((_, idx) => idx);
-    for (let j = order.length - 1; j > 0; j--) {
-      const k = Math.floor(Math.random() * (j + 1));
-      [order[j], order[k]] = [order[k], order[j]];
+    // Opening spawns: outer positions only, then greedily spread so players start
+    // on opposite sides of the block. Dealing randomly from the whole list put
+    // people in the middle of the map, sometimes inside a building.
+    const count = this.players.size;
+    const outer = MAP.spawns
+      .map((sp, idx) => ({ sp, idx, r: Math.hypot(sp[0], sp[2]) }))
+      .filter((c) => c.r > 26);
+    const pool = outer.length >= count ? outer : MAP.spawns.map((sp, idx) => ({ sp, idx }));
+
+    const chosen = [pool[Math.floor(Math.random() * pool.length)]];
+    while (chosen.length < count) {
+      let best = null;
+      let bestDist = -1;
+      for (const c of pool) {
+        if (chosen.includes(c)) continue;
+        let nearest = Infinity;
+        for (const taken of chosen) nearest = Math.min(nearest, dist(c.sp, taken.sp));
+        if (nearest > bestDist) { bestDist = nearest; best = c; }
+      }
+      if (!best) break;
+      chosen.push(best);
     }
+
     let i = 0;
     for (const p of this.players.values()) {
-      const idx = order[i % order.length];
-      p.pos = MAP.spawns[idx].slice();
-      p.lastSpawn = idx;
+      const c = chosen[i % chosen.length];
+      p.pos = c.sp.slice();
+      p.lastSpawn = c.idx;
       i++;
     }
 

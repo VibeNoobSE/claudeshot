@@ -519,6 +519,7 @@
           const model = buildLogoModel(data, m.height, m.depth);
           model.position.set(m.pos[0], m.pos[1], m.pos[2]);
           model.rotation.y = m.rotY || 0;
+          model.rotation.z = m.rotZ || 0;      // ARK's sign hangs askew
           scene.add(model);
 
           let ring = null;
@@ -538,6 +539,54 @@
           if (m.spin || ring) spinners.push({ mesh: model, ring, baseY: m.pos[1], spin: m.spin || 0 });
         })
         .catch((err) => console.warn("[shooter] logo model failed to load", m.file, err));
+    }
+
+    // ---- world lights, some of which refuse to stay on ---------------------
+    const flickers = [];
+    for (const L of MAP.lights || []) {
+      const light = new THREE.PointLight(new THREE.Color(L.color), L.intensity, L.distance || 18, 2);
+      light.position.set(L.pos[0], L.pos[1], L.pos[2]);
+      scene.add(light);
+      if (L.flicker) flickers.push({ light, base: L.intensity, next: 0, on: true });
+    }
+
+    function updateLights(now) {
+      for (const f of flickers) {
+        if (now < f.next) continue;
+        // irregular on/off with the occasional long dead spell
+        f.on = Math.random() > (f.on ? 0.25 : 0.55);
+        f.light.intensity = f.on ? f.base * (0.65 + Math.random() * 0.5) : f.base * 0.05;
+        f.next = now + (f.on ? 60 + Math.random() * 500 : 40 + Math.random() * 260);
+      }
+    }
+
+    // ---- stock still orbiting where the roof came down ---------------------
+    const rings = [];
+    const BOOK_COLORS = [0xc94f4f, 0x3f7fbf, 0xe0a53f, 0x4f9c58, 0xe8ecf3];
+    for (const fx of MAP.effects || []) {
+      if (fx.type !== "bookRing") continue;
+      const group = new THREE.Group();
+      group.position.set(fx.pos[0], fx.pos[1], fx.pos[2]);
+      group.rotation.x = fx.tilt || 0;
+      for (let i = 0; i < fx.count; i++) {
+        const ang = (i / fx.count) * Math.PI * 2;
+        const book = new THREE.Mesh(
+          new THREE.BoxGeometry(0.52, 0.15, 0.38),
+          new THREE.MeshLambertMaterial({ color: BOOK_COLORS[i % BOOK_COLORS.length] })
+        );
+        book.position.set(Math.cos(ang) * fx.radius, Math.sin(i * 1.7) * 0.35, Math.sin(ang) * fx.radius);
+        book.rotation.set(i * 0.7, -ang, i * 0.4);
+        group.add(book);
+      }
+      scene.add(group);
+      rings.push({ group, spin: fx.spin, baseY: fx.pos[1], phase: Math.random() * 6 });
+    }
+
+    function updateRings(dt, now) {
+      for (const r of rings) {
+        r.group.rotation.y += dt * r.spin;
+        r.group.position.y = r.baseY + Math.sin(now / 1400 + r.phase) * 0.3;
+      }
     }
 
     function updateModels(dt) {
@@ -913,6 +962,9 @@
       updateAvatars(dt);
       updatePickups(dt);
       updateModels(dt);
+      const nowMs = performance.now();
+      updateLights(nowMs);
+      updateRings(dt, nowMs);
       if (firing) fire();
       updateEffects();
       updateGun(dt);

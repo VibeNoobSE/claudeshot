@@ -49,6 +49,17 @@
     leafHi:    "#54a35d",
     signBg:    "#12324f",
     stone:     "#a8a29a",
+    brickDark: "#7d4436",
+    stoneWarm: "#b9a58c",
+    slate:     "#5c6672",
+    window:    "#2b3446",
+    windowLit: "#f0c96a",
+    rust:      "#8a4a2b",
+    ash:       "#6f6a66",
+    concrete:  "#9a978f",
+    tower:     "#6f7d92",
+    towerFar:  "#5a6679",
+    ark:       "#f36000",
   };
 
   // ---------------------------------------------------------------- BRAND
@@ -64,7 +75,7 @@
     dark: "#7d1a2f",
   };
 
-  const HALF = 40;
+  const HALF = 48;
   const WALL_H = 6;
   const boxes = [];
   const signs = [];
@@ -92,20 +103,61 @@
 
   // ======================================================== ground and shell
   box(0, -0.5, 0, HALF * 2, 1, HALF * 2, C.plaza);            // base slab
-  decal(0, 0.03, -25, 74, 0.06, 28, C.grass);                  // north park lawn
-  decal(0, 0.04, -25, 6, 0.06, 28, C.path);                    // path through the park
-  decal(0, 0.03, 25, 74, 0.06, 28, C.carpet);                  // south office carpet
-  decal(-30, 0.03, 0, 14, 0.06, 22, C.path);                   // west plaza
-  decal(30, 0.03, 0, 14, 0.06, 22, C.path);                    // east plaza
+  decal(0, 0.03, -28, 88, 0.06, 34, C.grass);                  // north park lawn
+  decal(0, 0.04, -28, 6, 0.06, 34, C.path);                    // path through the park
+  decal(0, 0.03, 28, 88, 0.06, 34, C.carpet);                  // south office carpet
+  decal(-34, 0.03, 0, 24, 0.06, 26, C.path);                   // west plaza, in front of ARK
+  decal(34, 0.03, 0, 22, 0.06, 26, C.path);                    // east plaza
 
-  // perimeter: brick base with a tall hedge on top (unjumpable, still reads as outdoors)
-  const per = [
-    [0, -HALF, HALF * 2, 1], [0, HALF, HALF * 2, 1],
-    [-HALF, 0, 1, HALF * 2], [HALF, 0, 1, HALF * 2],
-  ];
-  for (const [x, z, w, d] of per) {
-    box(x, 1.5, z, w, 3, d, C.brick);
-    box(x, 4.5, z, w === 1 ? 1.4 : w, 3, d === 1 ? 1.4 : d, C.hedge);
+  // ==================================================== city block boundary
+  // The arena is bounded by a continuous street of building fronts rather than a
+  // fence, so it reads as a city block you are fighting inside. The run is
+  // generated contiguously, which is what guarantees there is no way out.
+  const FACADE_D = 3.5;
+  const FRONTS = [C.brickDark, C.brick, C.stoneWarm, C.slate, C.concrete];
+
+  function facadeRun(axis, side) {
+    const mid = HALF - FACADE_D / 2;
+    const face = HALF - FACADE_D - 0.07;      // inner face, where windows sit
+    let t = -HALF;
+    let i = 0;
+    while (t < HALF - 0.01) {
+      const want = 7 + ((i * 7) % 3) * 3.5;               // 7 / 10.5 / 14
+      const seg = Math.min(want, HALF - t);
+      const h = 8.5 + ((i * 5) % 4) * 2.75;               // 8.5 -> 16.75
+      const c = t + seg / 2;
+      const col = FRONTS[(i + (side > 0 ? 2 : 0)) % FRONTS.length];
+      if (axis === "x") {
+        box(c, h / 2, side * mid, seg, h, FACADE_D, col);
+        box(c, h + 0.35, side * mid, seg + 0.5, 0.7, FACADE_D + 0.5, C.ash);   // cornice
+        for (let wy = 2.6; wy < h - 1.6; wy += 2.9) {
+          const lit = (i + Math.round(wy)) % 5 === 0;
+          decal(c, wy, side * face, seg * 0.62, 1.15, 0.14, lit ? C.windowLit : C.window);
+        }
+      } else {
+        box(side * mid, h / 2, c, FACADE_D, h, seg, col);
+        box(side * mid, h + 0.35, c, FACADE_D + 0.5, 0.7, seg + 0.5, C.ash);
+        for (let wy = 2.6; wy < h - 1.6; wy += 2.9) {
+          const lit = (i + Math.round(wy)) % 5 === 0;
+          decal(side * face, wy, c, 0.14, 1.15, seg * 0.62, lit ? C.windowLit : C.window);
+        }
+      }
+      t += seg;
+      i++;
+    }
+  }
+  facadeRun("x", -1); facadeRun("x", 1);
+  facadeRun("z", -1); facadeRun("z", 1);
+
+  // Skyline beyond the block: never collidable, never shootable, purely depth.
+  // Without it the tops of the fronts read as the edge of the world.
+  for (let a = 0; a < 44; a++) {
+    const ang = (a / 44) * Math.PI * 2;
+    const rad = HALF + 12 + (a % 5) * 7;
+    const h = 16 + ((a * 13) % 7) * 4.5;
+    const w = 6 + (a % 4) * 3;
+    prop(Math.cos(ang) * rad, h / 2, Math.sin(ang) * rad, w, h, w,
+         a % 3 === 0 ? C.towerFar : C.tower, { solid: false, collide: false });
   }
 
   // ============================================ NORLI bookshop (centre piece)
@@ -331,14 +383,97 @@
   box(-8, 0.7, 33, 0.9, 1.4, 0.9, C.white);   // water cooler
   box(8, 0.6, 33, 1.4, 1.2, 1, C.metal);      // printer
 
-  // ============================================ east / west plaza furniture
-  // west pergola — columns and beams, good cover lane
-  for (const z of [-6, 0, 6]) {
-    box(-26, 1.75, z, 0.5, 3.5, 0.5, C.wood);
-    box(-34, 1.75, z, 0.5, 3.5, 0.5, C.wood);
+  // ======================================= ARK — the derelict bookshop (west)
+  // Half-collapsed: a blown-out north wall, a caved-in roof open to the sky, and
+  // a dead sign. The weirdness lives client-side: books orbiting the roof hole
+  // and a sign light that will not stay on.
+  const AX = -34, AZ = 0, AH = 5.5, AT = 0.6;
+
+  decal(AX, 0.05, AZ, 16, 0.08, 14, C.concrete);                    // cracked slab
+
+  // north wall, torn open in the middle
+  box(-38.5, AH / 2, AZ - 7, 7, AH, AT, C.brickDark);
+  box(-29, AH / 2, AZ - 7, 6, AH, AT, C.brickDark);
+  box(-33.5, AH - 0.45, AZ - 7, 3, 0.9, AT, C.brickDark);           // lintel over the breach
+  prop(-34.6, 0.5, AZ - 6.2, 1.6, 1.0, 1.4, C.ash);                 // spill of rubble
+  prop(-33.2, 0.32, AZ - 5.4, 1.2, 0.65, 1.2, C.ash);
+
+  // south wall with the doorway
+  box(-39.5, AH / 2, AZ + 7, 5, AH, AT, C.brickDark);
+  box(-30, AH / 2, AZ + 7, 8, AH, AT, C.brickDark);
+  box(-35.5, AH - 0.45, AZ + 7, 3, 0.9, AT, C.brickDark);
+
+  // west wall: mostly gone, a stub and a knee-high ruin
+  box(-42, AH / 2, AZ - 4, AT, AH, 6, C.brickDark);
+  box(-42, 0.9, AZ + 3.5, AT, 1.8, 7, C.brickDark);
+
+  // east facade — the one that still stands, carrying the sign
+  box(-26, AH / 2, AZ, AT, AH, 14, C.brickDark);
+  for (const bz of [-4.5, -2.8, 3, 4.6]) {                          // boarded-up window
+    prop(-25.6, 2.6, AZ + bz, 0.14, 0.3, 3.2, C.wood, { solid: false });
   }
-  box(-30, 3.7, 0, 9.5, 0.4, 14, C.wood, { edges: false });
-  plant(-30, -9); plant(-30, 9);
+  box(-25.8, 4.7, AZ + 2, 0.5, 0.22, 4.4, C.rust);                  // bracket the sign hangs from
+
+  // what is left of the roof, open to the sky over the south-east corner
+  box(-38.5, AH + 0.3, AZ, 7, AT, 14, C.ash);
+  box(-33.5, AH + 0.3, AZ - 4.5, 3, AT, 5, C.ash);
+  prop(-31, AH + 0.3, AZ - 6, 2, AT, 2, C.ash);
+  prop(-27.5, AH + 0.3, AZ + 5, 3, AT, 4, C.ash);
+  prop(-32.2, AH + 0.3, AZ - 1.6, 1.4, AT, 1.6, C.ash, { solid: false });   // hanging fragment
+
+  // interior: shelving down, stock everywhere
+  box(-38, 0.45, AZ - 3.5, 5, 0.9, 1.8, C.shelf);                   // toppled
+  box(-37, 0.45, AZ + 1.5, 1.8, 0.9, 5, C.shelf);                   // toppled
+  box(-39.1, 1.1, AZ - 6.35, 5.2, 2.2, 0.8, C.shelf);               // still standing, flush to both walls
+  box(-27.8, 1.5, AZ + 3.5, 0.9, 3.0, 3, C.shelf);                  // leaning on the facade
+  box(-30.5, 0.5, AZ - 4, 3.6, 1.0, 1.2, C.wood);                   // wrecked counter
+  const spill = [C.book1, C.book2, C.book3, C.book4];
+  for (let i = 0; i < 26; i++) {
+    const bx = AX - 7 + ((i * 37) % 130) / 10;
+    const bz = AZ - 6 + ((i * 53) % 118) / 10;
+    prop(bx, 0.12, bz, 0.5, 0.16, 0.34, spill[i % 4], { solid: false });
+  }
+  // a stack of books that has no business standing up
+  for (let i = 0; i < 13; i++) {
+    prop(-30.2 + i * 0.16, 0.28 + i * 0.34, AZ + 1.2 + i * 0.1, 0.62, 0.3, 0.44, spill[i % 4]);
+  }
+
+  // ==================================================== street furniture
+  // Bays, stalls and scaffolding along the block, so the edges are somewhere to
+  // fight rather than a wall you back into.
+  function stall(x, z, axis) {
+    const w = axis === "x" ? 4.2 : 1.6, d = axis === "x" ? 1.6 : 4.2;
+    box(x, 0.55, z, w, 1.1, d, C.wood);
+    for (const [ox, oz] of axis === "x" ? [[-1.9, 0], [1.9, 0]] : [[0, -1.9], [0, 1.9]]) {
+      box(x + ox, 1.6, z + oz, 0.22, 3.2, 0.22, C.metal);
+    }
+    prop(x, 3.3, z, w + 0.8, 0.25, d + 0.8, C.book1, { solid: false });   // awning
+  }
+  stall(-40, 20, "x"); stall(-33, 24, "z"); stall(40, -20, "x"); stall(33, -24, "z");
+
+  function scaffold(x, z) {                       // climbable: adds height at the edge
+    for (const [ox, oz] of [[-2.4, -1.2], [2.4, -1.2], [-2.4, 1.2], [2.4, 1.2]]) {
+      box(x + ox, 2, z + oz, 0.24, 4, 0.24, C.metal);
+    }
+    box(x, 2.1, z, 5.4, 0.3, 3, C.wood);          // deck
+    // start far enough out that the top tread finishes AT the deck edge rather
+    // than under it, which would trap anyone climbing
+    stairs(x + 6.0, z, 2.1, 3, 2.6, "x", -1, C.metal);
+  }
+  scaffold(-40, -20); scaffold(38, 20);   // kept clear of the block, or the stair runs into it
+
+  // stacked crates in the corners
+  for (const [cx, cz] of [[-42, -40], [42, 40], [42, -40], [-42, 40]]) {
+    box(cx, 1.1, cz, 2.2, 2.2, 2.2, C.wood);
+    box(cx + (cx > 0 ? -1.9 : 1.9), 0.8, cz, 1.6, 1.6, 1.6, C.wood);
+    box(cx, 2.9, cz, 1.6, 1.4, 1.6, C.rust);
+  }
+
+  // bus shelter on the south edge
+  box(6, 1.4, 42, 6, 0.25, 2.6, C.metal);
+  for (const ox of [-2.8, 2.8]) box(6 + ox, 1.4, 42, 0.22, 2.8, 2.4, C.glass, { solid: false, collide: true, opacity: 0.3 });
+  box(6, 0.5, 43, 5.7, 1.0, 0.5, C.wood);
+  plant(-20, 14); plant(20, -14); plant(-44, 6); plant(44, -6);
   // east: pallets and crates by the stairs
   for (const [x, z, s] of [[27, -7, 1.6], [29.5, -7, 1.6], [27, -9.5, 1.6], [33, 6, 2.2], [30, 9, 1.6]]) {
     box(x, s / 2, z, s, s, s, C.wood);
@@ -358,6 +493,9 @@
     { file: "assets/norli-logo.json", pos: [0, 3.4, wz + 0.5], height: 1.9, depth: 0.35 },
     { file: "assets/norli-logo.json", pos: [0, 7.8, 0], height: 2.2, depth: 0.4, spin: 0.4 },
     { file: "assets/bookis-logo.json", pos: [0, 5.4, -22.85], height: 1.0, depth: 0.25 },
+    // ARK's sign still hangs on the one wall left standing, but not straight
+    { file: "assets/ark-logo.json", pos: [-25.5, 3.5, 2], height: 2.8, depth: 0.35,
+      rotY: Math.PI / 2, rotZ: -0.16 },
   ];
 
   // ================================================================= zones
@@ -365,6 +503,22 @@
   // tightens your aim. Same box read by both, so they can never disagree.
   const zones = [
     { id: "okr", min: [MX - mwx, 0.3, MZ - mwz], max: [MX + mwx, 4.0, MZ + mwz] },
+  ];
+
+  // ================================================================ lights
+  // Point lights placed in the world; `flicker` is animated client-side.
+  const lights = [
+    { pos: [-25.3, 4.3, 2], color: C.ark, intensity: 3.2, distance: 20, flicker: true },
+    { pos: [-36, 3.4, 1], color: "#8fd8ff", intensity: 0.9, distance: 16 },
+    { pos: [-30, 1.4, 3], color: "#ff7a3d", intensity: 0.7, distance: 9, flicker: true },
+  ];
+
+  // =============================================================== effects
+  // Animated client-side. bookRing: stock still orbiting where the roof gave in.
+  const effects = [
+    { type: "bookRing", pos: [-30.5, 8.4, 2], radius: 3.1, count: 16, spin: 0.3, tilt: 0.12 },
+    { type: "bookRing", pos: [-30.5, 10.8, 2], radius: 1.7, count: 9, spin: -0.5, tilt: -0.2 },
+    { type: "bookRing", pos: [-36, 7.2, -3], radius: 1.2, count: 6, spin: 0.7, tilt: 0.3 },
   ];
 
   // ================================================================= spawns
@@ -380,6 +534,10 @@
     [-20, 0, -6], [20, 0, 6],
     // high ground
     [-9, 5.6, -6], [9, 5.6, 6],
+    // ARK and the west end
+    [-38, 0, 10], [-30, 0, -12], [-43, 0, -10], [-38, 0, 22],
+    // outer street, along the new block
+    [42, 0, 0], [0, 0, 43], [0, 0, -43], [42, 0, 28], [-43, 0, 34],
   ];
 
   // =============================================================== pickups
@@ -405,6 +563,8 @@
     signs,
     models,
     zones,
+    lights,
+    effects,
     spawns,
     pickups,
   };
