@@ -258,6 +258,8 @@
     let locked = false;
     let alive = true;
     let hp = 100;
+    let maxHp = 100;          // replaced by the server's value on shooter-init
+    let respawnIn = 0;
     let ammo = MAG_SIZE;
     let reloading = false;
     let firing = false;
@@ -350,8 +352,21 @@
       return myUid ? p.uid === myUid : p.id === s.socket.id;
     }
 
-    const avatars = new Map(); // uid -> { group, meshes, bar, target }
+    const avatars = new Map(); // uid -> { group, label, meshes, bar, target }
     const camRight = new THREE.Vector3();
+    const losRay = new THREE.Raycaster();
+    const losFrom = new THREE.Vector3();
+    const losDir = new THREE.Vector3();
+
+    function hasLineOfSight(pos) {
+      losFrom.set(pos.x, pos.y + 0.9, pos.z);          // aim at the chest
+      losDir.copy(losFrom).sub(camera.position);
+      const range = losDir.length();
+      if (range < 1.2) return true;
+      losRay.set(camera.position, losDir.normalize());
+      losRay.far = range - 0.45;                        // stop short of the body
+      return losRay.intersectObjects(shotMeshes, false).length === 0;
+    }
 
     function makeLabel(name, color) {
       const cv = document.createElement("canvas");
@@ -366,7 +381,7 @@
       ctx.fillStyle = color;
       ctx.fillText(name, 128, 34);
       const tex = new THREE.CanvasTexture(cv);
-      const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, depthTest: false, transparent: true }));
+      const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true }));
       sprite.scale.set(2.4, 0.6, 1);
       sprite.position.y = 2.25;
       sprite.renderOrder = 10;
@@ -392,23 +407,23 @@
         new THREE.MeshLambertMaterial({ color: 0x2b3350 })
       );
       gun.position.set(0.3, 0.95, -0.4);
-      group.add(body, head, visor, gun, makeLabel(p.name, p.color));
+      const label = makeLabel(p.name, p.color);
+      group.add(body, head, visor, gun, label);
       scene.add(group);
 
       // Health bar lives in world space, not inside the avatar group: sprites
       // always face the camera, so parenting it to a rotating body would swing
       // the fill offset around as the player turned.
       const bg = new THREE.Sprite(new THREE.SpriteMaterial({
-        color: 0x0d1220, transparent: true, opacity: 0.8, depthTest: false }));
+        color: 0x0d1220, transparent: true, opacity: 0.8 }));
       bg.scale.set(1.34, 0.17, 1);
-      bg.renderOrder = 8;
-      const fill = new THREE.Sprite(new THREE.SpriteMaterial({ color: 0x4ecca3, depthTest: false }));
+      const fill = new THREE.Sprite(new THREE.SpriteMaterial({ color: 0x4ecca3 }));
       fill.scale.set(1.26, 0.11, 1);
-      fill.renderOrder = 9;
       scene.add(bg, fill);
 
       return {
         group,
+        label,
         meshes: [body, head],
         bar: { bg, fill, w: 1.26 },
         target: new THREE.Vector3(p.p ? p.p[0] : 0, p.p ? p.p[1] : 0, p.p ? p.p[2] : 0),
@@ -441,9 +456,11 @@
 
         // health bar, offset along the camera's right so it drains screen-left
         const bar = a.bar;
-        bar.bg.visible = bar.fill.visible = p.alive;
-        if (p.alive) {
-          const frac = Math.max(0, Math.min(1, p.hp / 100));
+        const visibleToMe = p.alive && hasLineOfSight(a.group.position);
+        a.label.visible = visibleToMe;
+        bar.bg.visible = bar.fill.visible = visibleToMe;
+        if (visibleToMe) {
+          const frac = Math.max(0, Math.min(1, p.hp / maxHp));
           const bx = a.group.position.x, by = a.group.position.y + 2.06, bz = a.group.position.z;
           bar.bg.position.set(bx, by, bz);
           bar.fill.scale.x = Math.max(0.001, bar.w * frac);
@@ -740,7 +757,10 @@
     s.on(renderer.domElement, "contextmenu", (e) => e.preventDefault());
 
     // -------------------------------------------------------------- network
-    s.sock("shooter-init", (data) => { hud.setMap(data.map); });
+    s.sock("shooter-init", (data) => {
+      hud.setMap(data.map);
+      if (data.maxHp) maxHp = data.maxHp;
+    });
 
     s.sock("shooter-you", ({ uid }) => { myUid = uid; });
 
@@ -764,6 +784,7 @@
         hp = me.hp;
         if (alive && !me.alive) firing = false;
         alive = me.alive;
+        respawnIn = me.rs || 0;
         buffs = { bd: me.bd || 0, bs: me.bs || 0 };
         speedMul = buffs.bs > 0 ? SPEED_BUFF : 1;
         const nowOkr = !!me.ok;
@@ -874,7 +895,7 @@
       renderer.render(scene, camera);
       renderer.clearDepth();           // weapon pass — never clips into geometry
       renderer.render(viewScene, viewCamera);
-      hud.update({ hp, ammo, reloading, countdown, timeLeft, alive, locked, deathMessage, buffs, inOkr });
+      hud.update({ hp, maxHp, ammo, reloading, countdown, timeLeft, alive, locked, deathMessage, buffs, inOkr, respawnIn });
     }
     animate();
   }
@@ -1092,8 +1113,9 @@
         ).join("");
         if (buffRow.innerHTML !== markup) buffRow.innerHTML = markup;
 
-        hpBar.style.width = Math.max(0, st.hp) + "%";
-        hpBar.style.background = st.hp > 60 ? "#4ecca3" : st.hp > 25 ? "#f7c948" : "#e94560";
+        const hpFrac = Math.max(0, Math.min(1, st.hp / (st.maxHp || 100)));
+        hpBar.style.width = (hpFrac * 100) + "%";
+        hpBar.style.background = hpFrac > 0.6 ? "#4ecca3" : hpFrac > 0.25 ? "#f7c948" : "#e94560";
         ammoEl.innerHTML = st.reloading
           ? '<span style="font-size:0.9rem;color:#f7c948">RELOADING</span>'
           : st.ammo + '<span style="font-size:0.9rem;color:#8892a4"> / 30</span>';
@@ -1102,7 +1124,15 @@
         timer.textContent = mins + ":" + secs;
 
         if (st.countdown > 0) centre.textContent = String(st.countdown);
-        else if (!st.alive) centre.innerHTML = '<span style="font-size:1.4rem;color:#e94560">' + esc(st.deathMessage || "Eliminated") + '<br><span style="font-size:0.9rem;color:#c9d2e3">Respawning…</span></span>';
+        else if (!st.alive) {
+          centre.innerHTML =
+            '<div style="font-size:1.4rem;font-weight:900;color:#e94560">' +
+            esc(st.deathMessage || "Eliminated") + '</div>' +
+            '<div style="margin-top:0.5rem;font-size:2.6rem;font-weight:900;color:#f7c948">' +
+            (st.respawnIn > 0 ? st.respawnIn : "") + '</div>' +
+            '<div style="font-size:0.85rem;color:#c9d2e3;letter-spacing:2px">' +
+            (st.respawnIn > 0 ? "RESPAWNING" : "GET READY") + '</div>';
+        }
         else centre.textContent = "";
       },
     };

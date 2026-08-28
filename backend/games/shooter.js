@@ -12,10 +12,10 @@ const MAP = require("../../frontend/games/shooter-map.js");
 const TICK_MS = 50;              // 20 Hz snapshots
 const COUNTDOWN_MS = 3000;
 const ROUND_MS = 180000;         // 3 minute round
-const RESPAWN_MS = 3000;
-const MAX_HP = 100;
-const BODY_DAMAGE = 20;
-const HEAD_DAMAGE = 45;
+const RESPAWN_MS = 10000;        // you sit out a full 10s before rejoining
+const MAX_HP = 150;              // ~9 body shots (~1.0s) rather than 5 (~0.6s)
+const BODY_DAMAGE = 18;
+const HEAD_DAMAGE = 40;
 const MAX_RANGE = 140;
 const MIN_SHOT_INTERVAL = 80;    // ms — rejects impossible fire rates
 const EYE_HEIGHT = 1.35;
@@ -26,7 +26,7 @@ const PICKUP_RADIUS = 2.6;       // how close a player must be to claim a pickup
 const PICKUP_RESPAWN_MS = 20000;
 const BUFF_MS = 12000;
 const DAMAGE_BUFF = 2;
-const HEALTH_PICKUP = 50;
+const HEALTH_PICKUP = 65;
 const OKR_REGEN_MS = 700;        // "clear visions": steady regen while in the OKR room
 const OKR_REGEN = 4;
 
@@ -111,13 +111,22 @@ class ShooterGame {
         speedUntil: 0,
         okr: false,
         lastRegen: 0,
+        lastSpawn: -1,
       });
     });
 
-    // Spread the initial spawns as widely as the spawn list allows.
+    // Shuffle the spawn list, then deal one to each player: spread out, but a
+    // different arrangement every round rather than a fixed seating plan.
+    const order = MAP.spawns.map((_, idx) => idx);
+    for (let j = order.length - 1; j > 0; j--) {
+      const k = Math.floor(Math.random() * (j + 1));
+      [order[j], order[k]] = [order[k], order[j]];
+    }
     let i = 0;
     for (const p of this.players.values()) {
-      p.pos = MAP.spawns[(i * 2) % MAP.spawns.length].slice();
+      const idx = order[i % order.length];
+      p.pos = MAP.spawns[idx].slice();
+      p.lastSpawn = idx;
       i++;
     }
 
@@ -259,17 +268,23 @@ class ShooterGame {
   }
 
   respawn(p) {
-    // Spawn furthest from the nearest living opponent — cheap anti-spawn-camping.
+    // Rank spawns by how far they are from the nearest living opponent, then pick
+    // at random from the safest half. Always taking the single furthest spawn is
+    // deterministic, which is why players kept reappearing in the same place.
     const others = [...this.players.values()].filter((o) => o !== p && o.alive);
-    let best = MAP.spawns[0];
-    let bestScore = -Infinity;
-    for (const s of MAP.spawns) {
-      let nearest = Infinity;
-      for (const o of others) nearest = Math.min(nearest, dist(s, o.pos));
-      const score = others.length ? nearest : Math.random();
-      if (score > bestScore) { bestScore = score; best = s; }
-    }
-    p.pos = best.slice();
+    const scored = MAP.spawns
+      .map((sp, idx) => {
+        let nearest = Infinity;
+        for (const o of others) nearest = Math.min(nearest, dist(sp, o.pos));
+        return { sp, idx, score: others.length ? nearest : 0 };
+      })
+      .filter((c) => c.idx !== p.lastSpawn || MAP.spawns.length < 3)
+      .sort((a, b) => b.score - a.score);
+
+    const pool = others.length ? Math.max(3, Math.ceil(scored.length / 2)) : scored.length;
+    const pick = scored[Math.floor(Math.random() * Math.min(pool, scored.length))];
+    p.lastSpawn = pick.idx;
+    p.pos = pick.sp.slice();
     p.hp = MAX_HP;
     p.alive = true;
     p.damageUntil = 0;   // buffs die with you
@@ -310,6 +325,7 @@ class ShooterGame {
         kills: p.kills,
         deaths: p.deaths,
         ok: p.okr ? 1 : 0,
+        rs: p.alive ? 0 : Math.max(0, Math.ceil((p.respawnAt - now) / 1000)),
         bd: Math.max(0, Math.ceil((p.damageUntil - now) / 1000)),
         bs: Math.max(0, Math.ceil((p.speedUntil - now) / 1000)),
       })),
