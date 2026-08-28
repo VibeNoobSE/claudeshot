@@ -271,7 +271,12 @@
     // on top without permanently dragging your crosshair off target.
     let aimYaw = 0;
     let aimPitch = 0;
-    let shakeAmt = 0;
+    // Server-assigned identity that survives reconnects. socket.id changes when
+    // the connection drops, which used to make the client treat its own player
+    // as a stranger and draw a motionless clone of you.
+    let myUid = null;
+    // recoil as a damped spring rather than random jitter
+    let recoilP = 0, recoilVelP = 0, recoilY = 0, recoilVelY = 0, shotParity = 1;
     let inOkr = false;
     let okrPulse = 0;
     let okrRoll = 0;
@@ -339,7 +344,14 @@
     }
 
     // -------------------------------------------------------------- avatars
-    const avatars = new Map(); // id -> { group, meshes, target, label }
+    // Identity check: prefer the stable uid, fall back to socket id only until
+    // the server has told us our uid.
+    function isMe(p) {
+      return myUid ? p.uid === myUid : p.id === s.socket.id;
+    }
+
+    const avatars = new Map(); // uid -> { group, meshes, bar, target }
+    const camRight = new THREE.Vector3();
 
     function makeLabel(name, color) {
       const cv = document.createElement("canvas");
@@ -382,22 +394,64 @@
       gun.position.set(0.3, 0.95, -0.4);
       group.add(body, head, visor, gun, makeLabel(p.name, p.color));
       scene.add(group);
-      return { group, meshes: [body, head], target: new THREE.Vector3(), yaw: 0 };
+
+      // Health bar lives in world space, not inside the avatar group: sprites
+      // always face the camera, so parenting it to a rotating body would swing
+      // the fill offset around as the player turned.
+      const bg = new THREE.Sprite(new THREE.SpriteMaterial({
+        color: 0x0d1220, transparent: true, opacity: 0.8, depthTest: false }));
+      bg.scale.set(1.34, 0.17, 1);
+      bg.renderOrder = 8;
+      const fill = new THREE.Sprite(new THREE.SpriteMaterial({ color: 0x4ecca3, depthTest: false }));
+      fill.scale.set(1.26, 0.11, 1);
+      fill.renderOrder = 9;
+      scene.add(bg, fill);
+
+      return {
+        group,
+        meshes: [body, head],
+        bar: { bg, fill, w: 1.26 },
+        target: new THREE.Vector3(p.p ? p.p[0] : 0, p.p ? p.p[1] : 0, p.p ? p.p[2] : 0),
+        yaw: 0,
+        fresh: true,
+      };
     }
 
     function updateAvatars(dt) {
       const seen = new Set();
       for (const p of snapshotPlayers) {
-        if (p.id === s.socket.id) continue;
-        seen.add(p.id);
-        let a = avatars.get(p.id);
-        if (!a) { a = makeAvatar(p); avatars.set(p.id, a); }
+        const key = p.uid || p.id;
+        if (isMe(p)) continue;
+        seen.add(key);
+        let a = avatars.get(key);
+        if (!a) { a = makeAvatar(p); avatars.set(key, a); }
         a.target.set(p.p[0], p.p[1], p.p[2]);
         a.yaw = p.r[0];
         a.group.visible = p.alive;
         // exponential smoothing towards the last snapshot — no prediction needed
         const k = 1 - Math.exp(-16 * dt);
+        if (a.fresh) {
+          // snap on the first frame, otherwise a joining player visibly slides
+          // in from the world origin
+          a.group.position.copy(a.target);
+          a.group.rotation.y = a.yaw;
+          a.fresh = false;
+        }
         a.group.position.lerp(a.target, k);
+
+        // health bar, offset along the camera's right so it drains screen-left
+        const bar = a.bar;
+        bar.bg.visible = bar.fill.visible = p.alive;
+        if (p.alive) {
+          const frac = Math.max(0, Math.min(1, p.hp / 100));
+          const bx = a.group.position.x, by = a.group.position.y + 2.06, bz = a.group.position.z;
+          bar.bg.position.set(bx, by, bz);
+          bar.fill.scale.x = Math.max(0.001, bar.w * frac);
+          camera.getWorldDirection(scratchDir);
+          camRight.crossVectors(scratchDir, camera.up).normalize();
+          bar.fill.position.set(bx, by, bz).addScaledVector(camRight, -(bar.w * (1 - frac)) / 2);
+          bar.fill.material.color.setHex(frac > 0.6 ? 0x4ecca3 : frac > 0.25 ? 0xf7c948 : 0xe94560);
+        }
         let dy = a.yaw - a.group.rotation.y;
         while (dy > Math.PI) dy -= Math.PI * 2;
         while (dy < -Math.PI) dy += Math.PI * 2;
@@ -406,6 +460,8 @@
       for (const [id, a] of avatars) {
         if (seen.has(id)) continue;
         scene.remove(a.group);
+        scene.remove(a.bar.bg);
+        scene.remove(a.bar.fill);
         avatars.delete(id);
       }
     }
@@ -636,7 +692,9 @@
         .addScaledVector(camera.up, -0.13);
       tracer(muzzle, end);
       recoil = Math.min(1.4, recoil + 0.95);
-      shakeAmt = Math.min(1.5, shakeAmt + 0.62);          // kick the whole view
+      recoilVelP += 1.45;                                 // kick the view up
+      recoilVelY += 0.3 * shotParity;                     // and alternately aside
+      shotParity = -shotParity;
       flashUntil = performance.now() + 55;
       muzzleLight.position.copy(muzzle);
       muzzleLight.intensity = 5;
@@ -684,6 +742,8 @@
     // -------------------------------------------------------------- network
     s.sock("shooter-init", (data) => { hud.setMap(data.map); });
 
+    s.sock("shooter-you", ({ uid }) => { myUid = uid; });
+
     s.sock("shooter-spawn", ({ pos, hp: newHp }) => {
       teleport(pos);
       hp = newHp;
@@ -698,7 +758,7 @@
       countdown = state.countdown;
       timeLeft = state.timeLeft;
       activePickups = new Set(state.pickups || []);
-      const me = state.players.find((p) => p.id === s.socket.id);
+      const me = state.players.find(isMe);
       if (me) {
         if (me.hp > hp && alive) hud.healTick(me.hp - hp);   // visible OKR regen
         hp = me.hp;
@@ -713,7 +773,7 @@
         }
         inOkr = nowOkr;
       }
-      hud.setScores(state.players, s.socket.id);
+      hud.setScores(state.players, myUid, s.socket.id);
     });
 
     s.sock("shooter-damaged", ({ from, hp: newHp }) => {
@@ -721,17 +781,18 @@
       hud.flashDamage(from);
     });
 
-    s.sock("shooter-pickup", ({ id, type, byId }) => {
+    s.sock("shooter-pickup", ({ id, type, byId, byUid }) => {
       activePickups.delete(id);
-      if (byId !== s.socket.id) return;
+      if (!(byUid ? byUid === myUid : byId === s.socket.id)) return;
       if (type === "ammo") { ammo = MAG_SIZE; reloading = false; }
       const style = PICKUP_STYLE[type];
       hud.toast(style ? style.label : "PICKED UP", style ? "#" + style.color.toString(16).padStart(6, "0") : "#f7c948");
     });
 
-    s.sock("shooter-kill", ({ killer, victim, victimId, headshot }) => {
+    s.sock("shooter-kill", ({ killer, victim, victimId, victimUid, headshot }) => {
       hud.addFeed(killer, victim, headshot);
-      if (victimId === s.socket.id) deathMessage = "Fragged by " + killer;
+      const wasMe = victimUid ? victimUid === myUid : victimId === s.socket.id;
+      if (wasMe) deathMessage = "Fragged by " + killer;
     });
 
     const sendTimer = setInterval(() => {
@@ -774,15 +835,22 @@
 
       // Camera orientation = aim + decaying shake. Squaring the shake makes it
       // snap hard on the shot and settle quickly rather than wobbling on.
-      shakeAmt = Math.max(0, shakeAmt - dt * 3.4);
-      const sh = shakeAmt * shakeAmt;
+      // Recoil is a damped spring: a firm kick up, then a settle back down along
+      // the same axis, with a small alternating sideways component. The previous
+      // version jittered randomly on all three axes every frame, which read as
+      // chaotic shaking rather than a weapon kicking.
+      const SPRING = 62, DAMP = 10.5;
+      recoilVelP += (-SPRING * recoilP - DAMP * recoilVelP) * dt;
+      recoilP += recoilVelP * dt;
+      recoilVelY += (-SPRING * 0.55 * recoilY - DAMP * recoilVelY) * dt;
+      recoilY += recoilVelY * dt;
+
       okrPulse = Math.max(0, okrPulse - dt * 0.5);
       const targetRoll = inOkr ? Math.sin(performance.now() / 620) * 0.045 : 0;
       okrRoll += (targetRoll - okrRoll) * Math.min(1, dt * 3);
-      camera.rotation.y = aimYaw + (Math.random() - 0.5) * 0.055 * sh;
-      camera.rotation.x = aimPitch + (Math.random() - 0.5) * 0.055 * sh;
-      camera.rotation.z = okrRoll + okrPulse * Math.sin(okrPulse * 14) * 0.12
-                        + (Math.random() - 0.5) * 0.05 * sh;
+      camera.rotation.y = aimYaw + recoilY;
+      camera.rotation.x = aimPitch + recoilP;
+      camera.rotation.z = okrRoll + okrPulse * Math.sin(okrPulse * 14) * 0.12 - recoilY * 0.4;
       // lens push while the OKR effect plays, and a gentle widen while inside
       const wantFov = 78 + (inOkr ? 3 : 0) + okrPulse * Math.sin(okrPulse * 11) * 9;
       if (Math.abs(camera.fov - wantFov) > 0.01) {
@@ -896,7 +964,16 @@
 
     const ammoEl = el("position:absolute;bottom:12px;right:14px;text-align:right;font-weight:900;font-size:1.6rem;text-shadow:0 2px 6px rgba(0,0,0,0.8);");
     const centre = el("position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-weight:900;font-size:2.2rem;text-shadow:0 3px 10px rgba(0,0,0,0.9);text-align:center;");
-    const damageVignette = el("position:absolute;inset:0;box-shadow:inset 0 0 90px rgba(233,69,96,0.9);opacity:0;transition:opacity 220ms;");
+    const damageVignette = el("position:absolute;inset:0;box-shadow:inset 0 0 90px rgba(233,69,96,0.75);opacity:0;transition:opacity 220ms;");
+    const blood = el("position:absolute;inset:0;opacity:0;overflow:hidden;");
+    const drops = [];
+    for (let i = 0; i < 7; i++) {
+      const d = document.createElement("div");
+      d.style.cssText = "position:absolute;border-radius:50%;background:radial-gradient(circle at 38% 34%," +
+        "rgba(176,20,32,0.85),rgba(120,8,18,0.42) 58%,rgba(120,8,18,0) 74%);";
+      blood.appendChild(d);
+      drops.push(d);
+    }
 
     const buffRow = el("position:absolute;bottom:44px;left:14px;display:flex;gap:6px;font-size:0.68rem;font-weight:900;letter-spacing:1px;");
     const toastEl = el("position:absolute;bottom:78px;left:50%;transform:translateX(-50%);font-size:1rem;font-weight:900;letter-spacing:2px;opacity:0;transition:opacity 200ms;text-shadow:0 2px 8px rgba(0,0,0,0.9);");
@@ -963,8 +1040,24 @@
       },
       flashDamage() {
         damageVignette.style.opacity = "1";
+        // re-scatter the splatter on every hit, kept to the edges so the centre
+        // of the screen stays readable while you are being shot at
+        for (const d of drops) {
+          const size = 55 + Math.random() * 145;
+          d.style.width = size + "px";
+          d.style.height = size * (0.55 + Math.random() * 0.6) + "px";
+          d.style.left = (Math.random() < 0.5 ? Math.random() * 26 : 74 + Math.random() * 24) + "%";
+          d.style.top = Math.random() * 86 + "%";
+          d.style.transform = "rotate(" + Math.floor(Math.random() * 360) + "deg)";
+        }
+        blood.style.transition = "opacity 70ms";
+        blood.style.opacity = "0.7";
         clearTimeout(dmgTimer);
-        dmgTimer = setTimeout(() => { damageVignette.style.opacity = "0"; }, 220);
+        dmgTimer = setTimeout(() => {
+          damageVignette.style.opacity = "0";
+          blood.style.transition = "opacity 750ms ease-out";
+          blood.style.opacity = "0";
+        }, 230);
       },
       addFeed(killer, victim, headshot) {
         feedItems.unshift(
@@ -975,12 +1068,12 @@
         if (feedItems.length > 5) feedItems.pop();
         feed.innerHTML = feedItems.join("<br>");
       },
-      setScores(players, myId) {
+      setScores(players, myUid, mySocketId) {
         board.innerHTML = players
           .slice()
           .sort((a, b) => b.kills - a.kills || a.deaths - b.deaths)
           .map((p) => {
-            const me = p.id === myId;
+            const me = myUid ? p.uid === myUid : p.id === mySocketId;
             return '<div style="color:' + (me ? "#f7c948" : "#c9d2e3") + '">' +
               esc(p.name) + ' &nbsp;<b>' + p.kills + '</b> <span style="color:#8892a4">/ ' + p.deaths + '</span></div>';
           })

@@ -93,6 +93,10 @@ class ShooterGame {
     this.room.players.forEach((p, i) => {
       this.players.set(p.id, {
         id: p.id,
+        // Socket ids change on every reconnect. Rendering keys off this stable
+        // uid instead, so a reconnecting player is never drawn as a second
+        // "ghost" avatar of themselves and never blinks out of existence.
+        uid: "u" + (i + 1),
         name: p.name,
         color: COLORS[i % COLORS.length],
         hp: MAX_HP,
@@ -132,6 +136,7 @@ class ShooterGame {
     });
 
     for (const p of this.players.values()) {
+      this.io.to(p.id).emit("shooter-you", { uid: p.uid });
       this.io.to(p.id).emit("shooter-spawn", { pos: p.pos, hp: MAX_HP });
     }
 
@@ -150,6 +155,7 @@ class ShooterGame {
     this.players.delete(oldId);
     p.id = newId;
     this.players.set(newId, p);
+    this.io.to(newId).emit("shooter-you", { uid: p.uid });
     this.io.to(newId).emit("shooter-spawn", { pos: p.pos, hp: p.hp });
   }
 
@@ -202,6 +208,7 @@ class ShooterGame {
       type: pk.type,
       by: player.name,
       byId: player.id,
+      byUid: player.uid,
     });
   }
 
@@ -243,8 +250,10 @@ class ShooterGame {
     this.io.to(this.room.code).emit("shooter-kill", {
       killer: killer.name,
       killerId: killer.id,
+      killerUid: killer.uid,
       victim: victim.name,
       victimId: victim.id,
+      victimUid: victim.uid,
       headshot: !!headshot,
     });
   }
@@ -291,6 +300,7 @@ class ShooterGame {
       pickups: [...this.pickups.values()].filter((pk) => now >= pk.readyAt).map((pk) => pk.id),
       players: [...this.players.values()].map((p) => ({
         id: p.id,
+        uid: p.uid,
         name: p.name,
         color: p.color,
         p: p.pos,

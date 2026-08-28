@@ -55,14 +55,38 @@ if (rememberedName) nameInput.value = rememberedName;
 if (invitedCode) {
   codeInput.value = invitedCode;
   const banner = document.getElementById("invite-banner");
+  const gameName = invitedCard
+    ? invitedCard.querySelector(".game-card-name").textContent
+    : null;
   if (banner) {
-    const gameName = invitedCard
-      ? invitedCard.querySelector(".game-card-name").textContent
-      : null;
     banner.textContent = "You're invited to room " + invitedCode +
       (gameName ? " \u00b7 " + gameName : "");
     banner.classList.remove("hidden");
   }
+
+  // Guest flow: someone arriving on an invite is joining an existing room, not
+  // starting one. Hide room creation and the game choice (the host picked it)
+  // and leave a single action: enter your name and join.
+  const hide = (sel) => {
+    const node = typeof sel === "string" ? document.querySelector(sel) : sel;
+    if (node) node.classList.add("hidden");
+  };
+  hide(".game-picker");
+  hide(".card .label");     // "Choose a game"
+  hide(".divider");         // "or join with a code"
+  hide(createBtn);
+  hide(codeInput);          // the code is already known
+
+  joinBtn.classList.remove("btn-secondary");
+  joinBtn.classList.add("btn-primary");
+  joinBtn.style.width = "100%";
+  joinBtn.textContent = "Join room " + invitedCode;
+
+  const escape = document.createElement("p");
+  escape.style.cssText = "margin-top:0.8rem;text-align:center;font-size:0.8rem;color:#8892a4;";
+  escape.innerHTML = '<a href="index.html" style="color:#8892a4;">or start your own room instead</a>';
+  joinBtn.parentNode.parentNode.appendChild(escape);
+
   (rememberedName ? joinBtn : nameInput).focus();
 }
 
