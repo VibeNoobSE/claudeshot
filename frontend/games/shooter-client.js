@@ -327,16 +327,19 @@
 
     // Standing up is refused when there is something overhead, otherwise you
     // could uncrouch inside geometry and get shoved out of the world.
-    const standTest = new Capsule(new THREE.Vector3(), new THREE.Vector3(), PLAYER_RADIUS);
+    // Probe ONLY the headroom we would newly occupy - from the crouched height up
+    // to the standing height. Testing the whole capsule included the floor, so
+    // ground contact flickered the stance and vibrated the camera while running.
+    const standTest = new Capsule(new THREE.Vector3(), new THREE.Vector3(), PLAYER_RADIUS * 0.9);
     function canStand() {
-      standTest.start.copy(collider.start);
-      standTest.end.copy(collider.start);
-      standTest.end.y = collider.start.y + STAND_SEGMENT;
+      standTest.start.set(collider.start.x, collider.start.y + CROUCH_SEGMENT + 0.05, collider.start.z);
+      standTest.end.set(collider.start.x, collider.start.y + STAND_SEGMENT, collider.start.z);
       return !octree.capsuleIntersect(standTest);
     }
 
     function updateStance(dt) {
-      const target = wantCrouch || !canStand() ? 1 : 0;
+      // only pay for the headroom probe when actually trying to stand up
+      const target = wantCrouch ? 1 : (crouch > 0.01 && !canStand() ? 1 : 0);
       crouch += (target - crouch) * (1 - Math.exp(-14 * dt));
       if (crouch < 0.002) crouch = 0;
       if (crouch > 0.998) crouch = 1;
@@ -632,6 +635,52 @@
       rings.push({ group, spin: fx.spin, baseY: fx.pos[1], phase: Math.random() * 6 });
     }
 
+    // ---- smoke: slabs drifting up and fading, recycled at the bottom --------
+    const smokes = [];
+    for (const fx of MAP.effects || []) {
+      if (fx.type !== "smoke") continue;
+      const group = new THREE.Group();
+      group.position.set(fx.pos[0], fx.pos[1], fx.pos[2]);
+      const puffs = [];
+      for (let i = 0; i < fx.count; i++) {
+        const puff = new THREE.Mesh(
+          new THREE.PlaneGeometry(1.6 + Math.random() * 1.4, 1.6 + Math.random() * 1.4),
+          new THREE.MeshBasicMaterial({
+            color: 0x2a2724, transparent: true, opacity: 0.3, depthWrite: false, side: THREE.DoubleSide,
+          })
+        );
+        const a = Math.random() * Math.PI * 2;
+        const r = Math.random() * fx.radius;
+        puff.position.set(Math.cos(a) * r, Math.random() * fx.rise, Math.sin(a) * r);
+        puff.rotation.z = Math.random() * Math.PI;
+        group.add(puff);
+        puffs.push({ mesh: puff, speed: 0.35 + Math.random() * 0.5, drift: (Math.random() - 0.5) * 0.25 });
+      }
+      scene.add(group);
+      smokes.push({ group, puffs, rise: fx.rise, spin: fx.spin || 0, radius: fx.radius });
+    }
+
+    function updateSmoke(dt) {
+      for (const sm of smokes) {
+        sm.group.rotation.y += dt * sm.spin;
+        for (const p of sm.puffs) {
+          const m = p.mesh;
+          m.position.y += p.speed * dt;
+          m.position.x += p.drift * dt;
+          m.rotation.z += dt * 0.25;
+          const t = m.position.y / sm.rise;
+          m.material.opacity = 0.34 * Math.max(0, 1 - t) * Math.min(1, t * 4);
+          m.scale.setScalar(0.6 + t * 1.5);
+          if (m.position.y > sm.rise) {              // recycle at the base
+            const a = Math.random() * Math.PI * 2;
+            const r = Math.random() * sm.radius;
+            m.position.set(Math.cos(a) * r, 0, Math.sin(a) * r);
+          }
+          m.lookAt(camera.position);                 // always face the viewer
+        }
+      }
+    }
+
     function updateRings(dt, now) {
       for (const r of rings) {
         r.group.rotation.y += dt * r.spin;
@@ -790,7 +839,7 @@
       ammo--;
 
       camera.getWorldDirection(aimDir);
-      const spread = SPREAD * (inOkr ? 0.25 : 1) * (1 - ads * (1 - ADS_SPREAD));
+      const spread = SPREAD * (inOkr ? 0.02 : 1) * (1 - ads * (1 - ADS_SPREAD));   // OKR = laser
       aimDir.x += (Math.random() - 0.5) * spread;
       aimDir.y += (Math.random() - 0.5) * spread;
       aimDir.z += (Math.random() - 0.5) * spread;
@@ -811,15 +860,16 @@
         .addScaledVector(right, 0.17)
         .addScaledVector(camera.up, -0.13);
       tracer(muzzle, end);
-      recoil = Math.min(1.4, recoil + 0.62);
-      recoilVelP += 0.8;                                  // kick the view up
-      recoilVelY += 0.1 * shotParity;                     // and slightly aside
+      const steady = inOkr ? 0.15 : 1;                    // clear visions: almost no kick
+      recoil = Math.min(1.4, recoil + 0.62 * steady);
+      recoilVelP += 0.8 * steady;                         // kick the view up
+      recoilVelY += 0.1 * shotParity * steady;            // and slightly aside
       shotParity = -shotParity;
       flashUntil = performance.now() + 55;
       muzzleLight.position.copy(muzzle);
       muzzleLight.intensity = 5;
       const limit = Math.PI / 2 * 0.95;
-      aimPitch = Math.min(limit, aimPitch + 0.0025);      // a touch of muzzle climb
+      aimPitch = Math.min(limit, aimPitch + 0.0025 * steady);   // a touch of muzzle climb
 
       if (hit) impact(hit.point);
 
@@ -989,8 +1039,8 @@
         piece.rotation.set(Math.random() * 3, Math.random() * 3, Math.random() * 3);
         addEffect(piece, 900);
       }
-      hud.addSignFeed(by, id, points);
-      if (byUid === myUid) hud.toast("+" + points + " SIGN SMASHED", "#f36000");
+      hud.addSignFeed(by, id);
+      if (byUid === myUid) hud.toast("SIGN SMASHED", "#f36000");
     });
 
     s.sock("shooter-target-hit", () => { hud.markHit(false); });
@@ -1012,7 +1062,7 @@
     s.socket.emit("shooter-input", { t: "ready" });
 
     const sendTimer = setInterval(() => {
-      if (s.disposed) return;
+      if (s.disposed || !spawned) return;   // never report the pre-spawn position
       s.socket.emit("shooter-input", {
         t: "state",
         p: [collider.start.x, collider.start.y - PLAYER_RADIUS, collider.start.z],
@@ -1096,6 +1146,7 @@
       const nowMs = performance.now();
       updateLights(nowMs);
       updateRings(dt, nowMs);
+      updateSmoke(dt);
       if (firing) fire();
       updateEffects();
       updateGun(dt);
@@ -1292,11 +1343,10 @@
           blood.style.opacity = "0";
         }, 230);
       },
-      addSignFeed(who, id, points) {
+      addSignFeed(who, id) {
         feedItems.unshift(
           '<span style="color:#4ecca3">' + esc(who) + '</span> smashed ' +
-          '<span style="color:#f36000">' + esc(id.split("-")[0].toUpperCase()) + '</span> ' +
-          '<span style="color:#f7c948">+' + points + '</span>'
+          '<span style="color:#f36000">' + esc(id.split("-")[0].toUpperCase()) + '</span>'
         );
         if (feedItems.length > 5) feedItems.pop();
         feed.innerHTML = feedItems.join("<br>");
@@ -1311,16 +1361,15 @@
         feed.innerHTML = feedItems.join("<br>");
       },
       setScores(players, myUid, mySocketId) {
-        board.innerHTML = '<div style="color:#8892a4;font-size:0.68rem;letter-spacing:1px">PTS · KILLS · SIGNS</div>' +
+        board.innerHTML = '<div style="color:#8892a4;font-size:0.68rem;letter-spacing:1px">KILLS / DEATHS</div>' +
           players
             .slice()
-            .sort((a, b) => (b.pts || 0) - (a.pts || 0) || b.kills - a.kills || a.deaths - b.deaths)
+            .sort((a, b) => b.kills - a.kills || a.deaths - b.deaths)
             .map((p) => {
               const me = myUid ? p.uid === myUid : p.id === mySocketId;
               return '<div style="color:' + (me ? "#f7c948" : "#c9d2e3") + '">' +
-                esc(p.name) + ' &nbsp;<b>' + (p.pts || 0) + '</b> ' +
-                '<span style="color:#8892a4">· ' + p.kills + ' · </span>' +
-                '<span style="color:#f36000">' + (p.lp || 0) + '</span></div>';
+                esc(p.name) + ' &nbsp;<b>' + p.kills + '</b>' +
+                '<span style="color:#8892a4"> / ' + p.deaths + '</span></div>';
             })
             .join("");
       },

@@ -29,7 +29,6 @@ const DAMAGE_BUFF = 2;
 const HEALTH_PICKUP = 65;
 const OKR_REGEN_MS = 700;        // "clear visions": steady regen while in the OKR room
 const OKR_REGEN = 4;
-const KILL_POINTS = 3;
 const TARGET_RESPAWN_MS = 30000;   // a smashed sign is re-hung after 30s
 
 const COLORS = ["#f7c948", "#e94560", "#4ecca3", "#5dade2", "#af7ac5", "#ff8c42", "#42f5b0", "#f542e0"];
@@ -114,7 +113,7 @@ class ShooterGame {
         speedUntil: 0,
         okr: false,
         crouch: 0,
-        logoPoints: 0,
+        spawnAcked: false,
         lastRegen: 0,
         lastSpawn: -1,
       });
@@ -124,10 +123,10 @@ class ShooterGame {
     // on opposite sides of the block. Dealing randomly from the whole list put
     // people in the middle of the map, sometimes inside a building.
     const count = this.players.size;
-    const outer = MAP.spawns
-      .map((sp, idx) => ({ sp, idx, r: Math.hypot(sp[0], sp[2]) }))
-      .filter((c) => c.r > 26);
-    const pool = outer.length >= count ? outer : MAP.spawns.map((sp, idx) => ({ sp, idx }));
+    const all = MAP.spawns.map((sp, idx) => ({ sp, idx, r: Math.hypot(sp[0], sp[2]) }));
+    const corners = all.filter((c) => Math.abs(c.sp[0]) > 30 && Math.abs(c.sp[2]) > 30);
+    const outer = all.filter((c) => c.r > 26);
+    const pool = corners.length >= count ? corners : (outer.length >= count ? outer : all);
 
     const chosen = [pool[Math.floor(Math.random() * pool.length)]];
     while (chosen.length < count) {
@@ -199,6 +198,7 @@ class ShooterGame {
     this.players.delete(oldId);
     p.id = newId;
     this.players.set(newId, p);
+    p.spawnAcked = false;                 // the new page must ask for its spawn
     this.io.to(newId).emit("shooter-you", { uid: p.uid });
     this.io.to(newId).emit("shooter-spawn", { pos: p.pos, hp: p.hp });
   }
@@ -226,6 +226,9 @@ class ShooterGame {
     if (data.t === "state") {
       if (!Array.isArray(data.p) || data.p.length !== 3) return;
       if (!data.p.every(Number.isFinite)) return;
+      // Ignore position reports until the client has been told where it spawns,
+      // otherwise its pre-spawn holding position overwrites the spawn we chose.
+      if (!p.spawnAcked) return;
       p.pos = data.p;
       if (Array.isArray(data.r) && data.r.length === 2 && data.r.every(Number.isFinite)) p.rot = data.r;
       if (Number.isFinite(data.c)) p.crouch = Math.max(0, Math.min(1, data.c));
@@ -236,6 +239,7 @@ class ShooterGame {
     // handlers, so any spawn we pushed at game start or on reconnect arrived
     // before anything was listening. It asks for its spawn when actually ready.
     if (data.t === "ready") {
+      p.spawnAcked = true;
       this.io.to(p.id).emit("shooter-you", { uid: p.uid });
       this.io.to(p.id).emit("shooter-spawn", { pos: p.pos, hp: p.hp });
       return;
@@ -333,7 +337,6 @@ class ShooterGame {
     if (t.hp <= 0) {
       t.hp = 0;
       t.readyAt = now + TARGET_RESPAWN_MS;
-      shooter.logoPoints += t.points;
       this.io.to(this.room.code).emit("shooter-target", {
         id: t.id, by: shooter.name, byUid: shooter.uid, points: t.points, broken: true,
       });
@@ -426,8 +429,6 @@ class ShooterGame {
         alive: p.alive,
         kills: p.kills,
         deaths: p.deaths,
-        lp: p.logoPoints,
-        pts: p.kills * KILL_POINTS + p.logoPoints,
         ok: p.okr ? 1 : 0,
         rs: p.alive ? 0 : Math.max(0, Math.ceil((p.respawnAt - now) / 1000)),
         bd: Math.max(0, Math.ceil((p.damageUntil - now) / 1000)),
@@ -442,7 +443,7 @@ class ShooterGame {
     if (this.ended) return;
     this.stop();
     const scores = [...this.players.values()]
-      .map((p) => ({ name: p.name, score: p.kills * KILL_POINTS + p.logoPoints }))
+      .map((p) => ({ name: p.name, score: p.kills }))
       .sort((a, b) => b.score - a.score);
     this.io.to(this.room.code).emit("shooter-over", { scores });
     this.onEnd(scores);
