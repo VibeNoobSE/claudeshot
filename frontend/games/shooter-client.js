@@ -131,7 +131,8 @@
     const area = document.getElementById("game-area");
     area.innerHTML = "";
     const wrap = document.createElement("div");
-    wrap.style.cssText = "position:relative;width:100%;margin:0 auto;border-radius:10px;overflow:hidden;background:#0b1020;";
+    wrap.style.cssText = "position:relative;width:100%;margin:0 auto;border-radius:10px;overflow:hidden;" +
+      "background:#0b1020;display:flex;align-items:center;justify-content:center;";
     area.appendChild(wrap);
 
     const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
@@ -165,19 +166,43 @@
 
     function resize() {
       const fs = !!document.fullscreenElement;
-      // fill the window: use all the width available, and all the height left over
-      // after the surrounding page chrome (nothing but the round indicator in fullscreen)
-      const availW = fs ? window.innerWidth : Math.max(320, wrap.clientWidth || window.innerWidth - 24);
-      const chrome = fs ? 0 : 110;
-      const availH = Math.max(320, window.innerHeight - chrome);
-      let w = availW;
-      let h = Math.round(w * 9 / 16);
-      if (h > availH) { h = availH; w = Math.round(h * 16 / 9); }
+      let w, h;
+      if (fs) {
+        // Fill the screen exactly. Letterboxing here used to leave the canvas
+        // smaller than the wrapper, and the browser forces a fullscreen element
+        // to 100% regardless of our inline size.
+        w = window.innerWidth;
+        h = window.innerHeight;
+      } else {
+        const availW = Math.max(320, wrap.clientWidth || window.innerWidth - 24);
+        const availH = Math.max(320, window.innerHeight - 110);
+        w = availW;
+        h = Math.round(w * 9 / 16);
+        if (h > availH) { h = availH; w = Math.round(h * 16 / 9); }
+      }
       renderer.setSize(w, h, false);
       renderer.domElement.style.width = w + "px";
       renderer.domElement.style.height = h + "px";
-      wrap.style.width = w + "px";
-      wrap.style.height = h + "px";
+      if (fs) {
+        wrap.style.width = "";
+        wrap.style.height = "";
+      } else {
+        wrap.style.width = w + "px";
+        wrap.style.height = h + "px";
+      }
+
+      // Pin the HUD to the CANVAS, not the wrapper. An inset:0 overlay centres on
+      // the wrapper, so any difference between the two put the crosshair off the
+      // true centre of the view - and shots landed away from the crosshair.
+      const layer = hud.layer;
+      layer.style.width = w + "px";
+      layer.style.height = h + "px";
+      layer.style.left = "50%";
+      layer.style.top = "50%";
+      layer.style.right = "auto";
+      layer.style.bottom = "auto";
+      layer.style.transform = "translate(-50%, -50%)";
+
       camera.aspect = w / h;
       camera.updateProjectionMatrix();
       viewCamera.aspect = w / h;
@@ -1282,6 +1307,7 @@
     stanceEl.textContent = "DUCKED";
 
     return {
+      layer,
       lockOverlay,
       setLocked(locked) { lockOverlay.style.display = locked ? "none" : "flex"; },
       setMap(name) { mapName.textContent = name || ""; },
