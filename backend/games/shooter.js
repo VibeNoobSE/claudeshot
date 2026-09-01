@@ -30,6 +30,7 @@ const HEALTH_PICKUP = 65;
 const OKR_REGEN_MS = 700;        // "clear visions": steady regen while in the OKR room
 const OKR_REGEN = 4;
 const TARGET_RESPAWN_MS = 30000;   // a smashed sign is re-hung after 30s
+const END_SCREEN_MS = 9000;        // the final board stays up in-game before the platform takes over
 
 const COLORS = ["#f7c948", "#e94560", "#4ecca3", "#5dade2", "#af7ac5", "#ff8c42", "#42f5b0", "#f542e0"];
 
@@ -189,6 +190,7 @@ class ShooterGame {
   stop() {
     if (this.timer) clearInterval(this.timer);
     this.timer = null;
+    if (this.endTimer) { clearTimeout(this.endTimer); this.endTimer = null; }
     this.ended = true;
   }
 
@@ -442,11 +444,26 @@ class ShooterGame {
   finish() {
     if (this.ended) return;
     this.stop();
-    const scores = [...this.players.values()]
-      .map((p) => ({ name: p.name, score: p.kills }))
-      .sort((a, b) => b.score - a.score);
-    this.io.to(this.room.code).emit("shooter-over", { scores });
-    this.onEnd(scores);
+
+    const table = [...this.players.values()]
+      .map((p) => ({
+        uid: p.uid,
+        name: p.name,
+        kills: p.kills,
+        deaths: p.deaths,
+        kd: p.deaths ? p.kills / p.deaths : p.kills,
+      }))
+      .sort((a, b) => b.kills - a.kills || a.deaths - b.deaths);
+
+    this.io.to(this.room.code).emit("shooter-over", { table, endsIn: END_SCREEN_MS });
+
+    // Hold the final board inside the game before handing back to the platform,
+    // which is what sends everyone to the results page.
+    const scores = table.map((p) => ({ name: p.name, score: p.kills }));
+    this.endTimer = setTimeout(() => {
+      this.endTimer = null;
+      this.onEnd(scores);
+    }, END_SCREEN_MS);
   }
 }
 

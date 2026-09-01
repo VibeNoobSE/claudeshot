@@ -142,6 +142,7 @@
     s.renderer = renderer;
 
     const hud = buildHud(wrap);
+    s.cleanups.push(() => hud.stopTimers());
 
     const scene = new THREE.Scene();
     const sky = MAP.skyColor || "#8ec5e8";
@@ -319,6 +320,7 @@
     let aiming = false;
     let ads = 0;            // 0 hip, 1 sighted
     let inOkr = false;
+    let matchOver = false;
     let okrPulse = 0;
     let okrRoll = 0;
     let reloadUntil = 0;
@@ -372,7 +374,7 @@
     }
 
     function applyInput(dt) {
-      if (!alive || countdown > 0) return;
+      if (!alive || countdown > 0 || matchOver) return;
       const stance = (1 - crouch * (1 - CROUCH_SPEED)) * (1 - ads * (1 - ADS_SPEED));
       const accel = dt * (onFloor ? ACCEL_GROUND : ACCEL_AIR) * speedMul * stance;
       if (keys.KeyW || keys.ArrowUp) velocity.add(forwardVector().multiplyScalar(accel));
@@ -856,7 +858,7 @@
     }
 
     function fire() {
-      if (!locked || !alive || countdown > 0 || reloading) return;
+      if (!locked || !alive || countdown > 0 || reloading || matchOver) return;
       const now = performance.now();
       if (now - lastFire < FIRE_MS) return;
       if (ammo <= 0) { reload(); return; }
@@ -988,6 +990,14 @@
     });
 
     s.sock("shooter-you", ({ uid }) => { myUid = uid; });
+
+    s.sock("shooter-over", ({ table, endsIn }) => {
+      matchOver = true;
+      firing = false;
+      aiming = false;
+      if (document.pointerLockElement) document.exitPointerLock();
+      hud.endScreen(table, myUid, endsIn);
+    });
 
     s.sock("shooter-spawn", ({ pos, hp: newHp }) => {
       spawned = true;
@@ -1288,6 +1298,9 @@
     const stanceEl = el("position:absolute;bottom:12px;left:214px;font-size:0.7rem;font-weight:900;letter-spacing:2px;color:#8892a4;opacity:0;transition:opacity 150ms;");
     const okrTint = el("position:absolute;inset:0;box-shadow:inset 0 0 120px rgba(126,224,192,0.55);opacity:0;transition:opacity 400ms;");
 
+    const endBoard = el("position:absolute;inset:0;display:none;align-items:center;justify-content:center;" +
+      "background:rgba(6,10,20,0.9);backdrop-filter:blur(2px);z-index:5;");
+
     const lockOverlay = el(
       "position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:0.6rem;background:rgba(11,16,32,0.86);cursor:pointer;pointer-events:auto;text-align:center;padding:1rem;",
       '<div style="font-size:1.5rem;font-weight:900;color:#f7c948;">Click to play</div>' +
@@ -1303,12 +1316,21 @@
     let toastTimer = null;
     let okrTimer = null;
     let healTimer = null;
+    let endTimer = null;
     const feedItems = [];
     stanceEl.textContent = "DUCKED";
 
     return {
       layer,
       lockOverlay,
+      stopTimers() {
+        clearInterval(endTimer);
+        clearTimeout(okrTimer);
+        clearTimeout(healTimer);
+        clearTimeout(toastTimer);
+        clearTimeout(hitTimer);
+        clearTimeout(dmgTimer);
+      },
       setLocked(locked) { lockOverlay.style.display = locked ? "none" : "flex"; },
       setMap(name) { mapName.textContent = name || ""; },
       markHit(head) {
@@ -1326,6 +1348,50 @@
           healEl.style.opacity = "0";
           healEl.style.transform = "translateY(0)";
         }, 500);
+      },
+      endScreen(table, myUid, endsIn) {
+        const rows = (table || []).map((p, i) => {
+          const me = myUid && p.uid === myUid;
+          const kd = (p.deaths ? p.kills / p.deaths : p.kills).toFixed(2);
+          const place = ["#f7c948", "#c9d2e3", "#c98a48"][i] || "#8892a4";
+          return '<tr style="color:' + (me ? "#f7c948" : "#e2e8f0") +
+            ';background:' + (me ? "rgba(247,201,72,0.10)" : "transparent") + '">' +
+            '<td style="padding:0.45rem 0.7rem;font-weight:900;color:' + place + '">' + (i + 1) + '</td>' +
+            '<td style="padding:0.45rem 0.7rem;font-weight:800;text-align:left">' + esc(p.name) +
+              (me ? ' <span style="color:#8892a4;font-size:0.75rem">you</span>' : "") + '</td>' +
+            '<td style="padding:0.45rem 0.9rem;font-weight:900;font-size:1.05rem">' + p.kills + '</td>' +
+            '<td style="padding:0.45rem 0.9rem;color:#8892a4">' + p.deaths + '</td>' +
+            '<td style="padding:0.45rem 0.9rem;font-weight:800;color:#4ecca3">' + kd + '</td></tr>';
+        }).join("");
+
+        const winner = table && table[0] ? table[0].name : "";
+        endBoard.innerHTML =
+          '<div style="text-align:center;max-width:92%;">' +
+          '<div style="font-size:0.8rem;letter-spacing:5px;color:#8892a4;font-weight:800">MATCH OVER</div>' +
+          '<div style="margin:0.35rem 0 1rem;font-size:1.7rem;font-weight:900;color:#f7c948;' +
+            'text-shadow:0 0 18px rgba(247,201,72,0.35)">' + esc(winner) + ' wins</div>' +
+          '<table style="margin:0 auto;border-collapse:collapse;font-size:0.95rem">' +
+          '<thead><tr style="color:#8892a4;font-size:0.7rem;letter-spacing:2px">' +
+          '<th style="padding:0 0.7rem 0.4rem"></th>' +
+          '<th style="padding:0 0.7rem 0.4rem;text-align:left">PLAYER</th>' +
+          '<th style="padding:0 0.9rem 0.4rem">K</th>' +
+          '<th style="padding:0 0.9rem 0.4rem">D</th>' +
+          '<th style="padding:0 0.9rem 0.4rem">K/D</th></tr></thead>' +
+          '<tbody>' + rows + '</tbody></table>' +
+          '<div id="sh-endcount" style="margin-top:1.1rem;font-size:0.8rem;color:#8892a4;letter-spacing:2px"></div>' +
+          '</div>';
+        endBoard.style.display = "flex";
+
+        const counter = endBoard.querySelector("#sh-endcount");
+        let left = Math.ceil((endsIn || 9000) / 1000);
+        const tick = () => {
+          counter.textContent = left > 0 ? "RESULTS IN " + left + "s" : "";
+          left--;
+          if (left < -1) clearInterval(endTimer);
+        };
+        tick();
+        clearInterval(endTimer);
+        endTimer = setInterval(tick, 1000);
       },
       okrBanner(text, sub) {
         okrEl.innerHTML =
