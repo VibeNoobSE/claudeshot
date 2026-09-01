@@ -134,8 +134,8 @@
   // the same height the depth buffer cannot separate them and the seam flickers
   // violently as the camera moves - which is what the pavement did against the
   // grass. Each layer sits a few centimetres above the one it overlaps.
-  decal(0, 0.03, -28, 88, 0.06, 34, C.grass);                  // north park lawn   (top 0.06)
-  decal(0, 0.03, 28, 88, 0.06, 34, C.carpet);                  // south office floor(top 0.06)
+  decal(0, 0.03, -28, 87.4, 0.06, 33.4, C.grass);              // north park lawn   (top 0.06)
+  decal(0, 0.03, 28, 87.4, 0.06, 33.4, C.carpet);              // south office floor(top 0.06)
   decal(-34, 0.06, 0, 24, 0.06, 26, C.path);                   // west plaza        (top 0.09)
   decal(34, 0.06, 0, 22, 0.06, 26, C.path);                    // east plaza        (top 0.09)
   decal(0, 0.09, -28, 6, 0.06, 34, C.path);                    // park path         (top 0.12)
@@ -149,12 +149,16 @@
 
   function facadeRun(axis, side) {
     const mid = HALF - FACADE_D / 2;
-    const face = HALF - FACADE_D - 0.07;      // inner face, where windows sit
-    let t = -HALF;
+    const face = HALF - FACADE_D - 0.1;       // just proud of the inner face, never on it
+    // The runs along x stop short of the corners, which the runs along z cover.
+    // Overlapping both at the corner stacks two blocks in the same space and the
+    // shared faces z-fight.
+    const end = axis === "x" ? HALF - FACADE_D : HALF;
+    let t = axis === "x" ? -HALF + FACADE_D : -HALF;
     let i = 0;
-    while (t < HALF - 0.01) {
+    while (t < end - 0.01) {
       const want = 7 + ((i * 7) % 3) * 3.5;               // 7 / 10.5 / 14
-      const seg = Math.min(want, HALF - t);
+      const seg = Math.min(want, end - t);
       const h = 8.5 + ((i * 5) % 4) * 2.75;               // 8.5 -> 16.75
       const c = t + seg / 2;
       const col = FRONTS[(i + (side > 0 ? 2 : 0)) % FRONTS.length];
@@ -195,7 +199,7 @@
   const SHOP_W = 22, SHOP_D = 16, SHOP_H = 5;
   const wx = SHOP_W / 2, wz = SHOP_D / 2;
 
-  decal(0, 0.07, 0, SHOP_W, 0.1, SHOP_D, C.wood);              // shop floor
+  decal(0, 0.07, 0, SHOP_W - 0.8, 0.1, SHOP_D - 0.8, C.wood);  // shop floor, inside the walls
   // north + south walls, each with a 5-wide doorway in the middle
   for (const zSide of [-wz, wz]) {
     box(-7.0, SHOP_H / 2, zSide, 8, SHOP_H, 0.5, C.brick);
@@ -208,7 +212,7 @@
     box(xSide, SHOP_H / 2, 6.2, 0.5, SHOP_H, 3.6, C.brick);
     box(xSide, 0.6, 0, 0.5, 1.2, 9, C.brick);                  // window sill
     box(xSide, 4.5, 0, 0.5, 1, 9, C.brick);                    // window head
-    prop(xSide, 2.8, 0, 0.3, 3.4, 9, C.glass, { solid: false, collide: true, opacity: 0.32 });
+    prop(xSide, 2.8, 0, 0.36, 3.4, 8.8, C.glass, { opacity: 0.32 });
   }
   box(0, SHOP_H + 0.3, 0, SHOP_W + 1, 0.6, SHOP_D + 1, C.roof);
   // roof parapet — cover for anyone who takes the high ground
@@ -255,7 +259,7 @@
   // Outdoor staircase up to the roof on the east side. It climbs WESTWARD so the
   // top tread finishes flush against the roof edge (both at y=5.6) — climbing the
   // other way tops out in mid-air, which is what stranded players before.
-  stairs(wx + 6.85, 0, SHOP_H + 0.6, 6, 4, "x", -1, C.stone);   // flush to the shop wall
+  stairs(wx + 6.85, 0, SHOP_H + 0.64, 6, 4, "x", -1, C.stone);  // flush to the wall, 4cm above the roof
 
   // ================================================= north: park / outdoors
   function tree(x, z, s) {
@@ -372,7 +376,7 @@
   const MX = 0, MZ = 20, MW = 12, MD = 9;
   const mwx = MW / 2, mwz = MD / 2;
   box(MX, 0.15, MZ, MW, 0.3, MD, C.white);                       // raised floor
-  decal(MX, 0.31, MZ, MW - 0.6, 0.06, MD - 0.6, "#5b6c94");      // rug
+  decal(MX, 0.32, MZ, MW - 1.2, 0.06, MD - 1.2, "#5b6c94");      // rug, clear of the sills
 
   // sills, split to leave a door gap on the north and south faces
   for (const oz of [-mwz, mwz]) {
@@ -388,18 +392,17 @@
   }
   box(MX, 3.95, MZ, MW + 0.8, 0.3, MD + 0.8, C.white);
   // a few glass panes remain on the short sides; shootable, not walkable
-  for (const ox of [-mwx, mwx]) {
-    prop(MX + ox, 2.4, MZ - 2.6, 0.2, 2.5, 3, C.glass, { solid: false, collide: true, opacity: 0.28 });
-    prop(MX + ox, 2.4, MZ + 2.6, 0.2, 2.5, 3, C.glass, { solid: false, collide: true, opacity: 0.28 });
-  }
+  // Only the east side keeps its glazing; the west side is open to the office,
+  // which makes the room a place you can be pushed out of rather than a box.
+  prop(MX + mwx, 2.4, MZ - 2.6, 0.36, 2.5, 3, C.glass, { opacity: 0.28 });
+  prop(MX + mwx, 2.4, MZ + 2.6, 0.36, 2.5, 3, C.glass, { opacity: 0.28 });
 
   // boardroom table, chairs, whiteboard
   box(MX, 0.75, MZ, 5.5, 0.15, 2.4, C.desk);
-  prop(MX, 0.45, MZ, 4.6, 0.75, 1.7, C.metal);
+  prop(MX, 0.4, MZ, 4.6, 0.66, 1.7, C.metal);                    // stops below the table top
   for (const [cx, cz] of [[-2, -2], [0, -2], [2, -2], [-2, 2], [0, 2], [2, 2]]) {
     prop(MX + cx, 0.75, MZ + cz, 0.6, 1.0, 0.6, C.cubicle);
   }
-  prop(MX - mwx + 0.4, 2.4, MZ, 0.12, 2.0, 4.5, C.white, { solid: false });
   sign(MX, 4.7, MZ - mwz - 0.5, 5, 1.2, Math.PI, "OKR ROOM", "#f7c948", "#12324f");
   sign(MX, 4.7, MZ + mwz + 0.5, 5, 1.2, 0, "OKR ROOM", "#f7c948", "#12324f");
   sign(MX, 3.7, MZ - mwz - 0.5, 6, 0.7, Math.PI, "HEAL + STEADY AIM", "#7ee0c0", "#0d2438");
@@ -414,226 +417,183 @@
   box(-8, 0.7, 33, 0.9, 1.4, 0.9, C.white);   // water cooler
   box(8, 0.6, 33, 1.4, 1.2, 1, C.metal);      // printer
 
-  // ============================== ARK — Blokk 4, a concrete-panel bookshop
-  // Eastern-bloc civic architecture gone to seed: a two-storey prefab slab with
-  // the state bookshop on the ground floor, an external stair tower, and a
-  // courtyard with a carpet-beating rack and a dead fountain. Built for the
-  // fight: a column grid for cover downstairs, a balcony that overlooks it, and
-  // a roof worth climbing to.
-  const BX = -37, BZ = 0;                       // building centre
-  const BW = 14, BD = 20;                       // 14 x 20 footprint
-  const F1 = 3.6, F2 = 7.6;                     // floor slab heights
-  const bwx = BW / 2, bwz = BD / 2;             // -44..-30, -10..10
+  // ===================== ARK — Blokk 4, with an airliner through the roof
+  // A concrete-panel bookshop that an aircraft came down on. The plane is the
+  // centrepiece and the level design: its fuselage steps upward from the nose,
+  // so walking up the spine takes you from the shop floor out onto the roof.
+  const BX = -36, BZ = -2;
+  const BW = 16, BD = 28;                       // x -44..-28, z -16..12
+  const WALL_TOP = 8;
+  const bwx = BW / 2, bwz = BD / 2;
 
-  decal(BX, 0.14, BZ, BW, 0.08, BD, C.concrete);
-  decal(-27, 0.14, 0, 8, 0.08, 30, C.panelWorn);                  // courtyard apron
+  decal(BX, 0.14, BZ, BW - 1.4, 0.08, BD - 1.4, C.concrete);
+  decal(-24.5, 0.14, 0, 7, 0.08, 30, C.panelWorn);                 // courtyard apron
 
-  // --- shell: precast panels with the joints showing --------------------------
-  function panelWall(x, y, z, w, h, d, tone) {
-    box(x, y, z, w, h, d, tone || C.panel);
+  // --- shell, torn open where the aircraft came through -----------------------
+  // north gable: a hole ten metres wide punched through it
+  box(-42.5, WALL_TOP / 2, BZ - bwz, 3, WALL_TOP, 0.6, C.panel);
+  box(-29.5, WALL_TOP / 2, BZ - bwz, 3, WALL_TOP, 0.6, C.panel);
+  box(BX, WALL_TOP - 1, BZ - bwz, 10, 2, 0.6, C.panel);            // what is left above it
+  crooked(-39, 5.6, BZ - bwz + 0.5, 2.4, 2.2, 0.25, C.panelDark, [0.3, 0.15, 0.4]);
+  crooked(-33.6, 5.2, BZ - bwz + 0.7, 2.0, 2.6, 0.25, C.panelDark, [-0.25, -0.2, -0.35]);
+
+  // south gable with the way in
+  box(-41, WALL_TOP / 2, BZ + bwz, 6, WALL_TOP, 0.6, C.panel);
+  box(-31, WALL_TOP / 2, BZ + bwz, 6, WALL_TOP, 0.6, C.panel);
+  box(BX, WALL_TOP - 1.6, BZ + bwz, 4, 4.8, 0.6, C.panel);
+
+  // west wall, holed where the port wing struck
+  box(-44.4, WALL_TOP / 2, BZ - 9.7, 0.8, WALL_TOP, 9.4, C.panelDark);
+  box(-44.4, WALL_TOP / 2, BZ + 6.7, 0.8, WALL_TOP, 15.4, C.panelDark);
+  box(-44.4, 1.4, BZ - 2, 0.8, 2.8, 6, C.panelDark);
+  box(-44.4, 6.6, BZ - 2, 0.8, 2.8, 6, C.panelDark);
+
+  // east wall: shopfront bays below, and the gash the starboard wing tore
+  // mullions are ground-floor only and stand slightly proud of the wall above,
+  // so no two faces share a plane
+  for (const bz of [-13, -9.6, -5.8, 2.4, 6, 9.6]) {
+    box(-28, 2.1, BZ + bz, 0.72, 4.2, 1.4, C.panelDark);
   }
-  // rear (west) wall, service door at the south end
-  panelWall(-44.4, F1 / 2, BZ - 4.7, 0.8, F1, 11.4, C.panelDark); // set into the block front,
-  panelWall(-44.4, F1 / 2, BZ + 7.7, 0.8, F1, 5.4, C.panelDark);  //   leaving no gap behind
-  panelWall(-44.4, F1 - 0.4, BZ + 3, 0.8, 0.8, 4, C.panelDark);   // lintel over the service door
-  panelWall(-44.4, F1 + (F2 - F1) / 2, BZ, 0.8, F2 - F1, BD, C.panel);
-
-  // north and south gables
-  panelWall(BX, F2 / 2 + 0.2, BZ - bwz, BW, F2 + 0.4, 0.6, C.panel);
-  panelWall(BX - 4, F2 / 2 + 0.2, BZ + bwz, 6, F2 + 0.4, 0.6, C.panel);
-  panelWall(BX + 4.5, F2 / 2 + 0.2, BZ + bwz, 5, F2 + 0.4, 0.6, C.panel);
-  panelWall(BX + 0.5, F1 + 1.4, BZ + bwz, 3, 4.8, 0.6, C.panel);  // over the south opening
-
-  // east face: shop front below, window band above
-  for (const [pz, pw] of [[-8.4, 3.2], [-3.6, 3.2], [6, 3.2]]) {   // the 1.2 mullion is gone
-    panelWall(-30, F1 / 2, BZ + pz, 0.6, F1, 1.4, C.panelDark);   // mullions between openings
-  }
-  panelWall(-30, F1 - 0.35, BZ, 0.6, 0.7, BD, C.panelDark);       // shopfront head
-  panelWall(-30, F1 + (F2 - F1) / 2, BZ - 9.25, 0.6, F2 - F1, 1.5, C.panel);
-  panelWall(-30, F1 + (F2 - F1) / 2, BZ + 1.75, 0.6, F2 - F1, 16.5, C.panel);
-  panelWall(-30, F2 - 0.6, BZ - 7.5, 0.6, 1.2, 2, C.panel);       // head of the first-floor door
-
-  // window grid, punched into the upper storey
-  for (const wz of [-8, -5.5, -3, -0.5, 2, 4.5, 7, 9]) {
-    decal(-30.35, 5.7, BZ + wz, 0.12, 1.5, 1.5, C.window);
-    decal(-43.65, 5.7, BZ + wz, 0.12, 1.5, 1.5, C.window);
-  }
-  for (const wx of [-42, -39.5, -37, -34.5, -32]) {
-    decal(wx, 5.7, BZ - bwz - 0.35, 1.5, 1.5, 0.12, C.window);
+  box(-28, 6.85, BZ - 3.2, 0.72, 2.1, 4, C.panelDark);             // above the gash
+  box(-28, 1.1, BZ - 3.2, 0.72, 2.2, 4, C.panelDark);              // below it
+  box(-28, 5.6, BZ + 4.2, 0.6, 4.8, 12, C.panel);                  // upper wall, south half
+  box(-28, 5.6, BZ - 11.4, 0.6, 4.8, 5.2, C.panel);
+  for (const wz of [-13, -9.6, 2.4, 6, 9.6]) {
+    decal(-28.35, 5.8, BZ + wz, 0.12, 1.4, 1.2, C.window);
   }
 
-  // --- floor slabs ------------------------------------------------------------
-  // First floor covers the west half plus the north end, leaving a void over the
-  // shop floor: you can shoot down into it, and drop in from the balcony.
-  box(-40.5, F1 + 0.2, BZ, 7, 0.4, BD, C.panelDark);
-  box(-33.5, F1 + 0.2, BZ - 6, 7, 0.4, 8, C.panelDark);
-  box(-36.5, F1 + 0.75, BZ - 1.8, 1, 1.1, 0.3, C.rebar);          // balcony rail, gapped
-  box(-33.5, F1 + 0.75, BZ - 1.8, 5, 1.1, 0.3, C.rebar);
-  box(-37, F1 + 0.75, BZ + 5, 0.3, 1.1, 10, C.rebar);
-  // roof slab and parapet
-  box(-35, F2 + 0.2, BZ, 10, 0.4, BD, C.panelDark);               // roof, with a stairwell
-  box(-43.5, F2 + 0.2, BZ, 1, 0.4, BD, C.panelDark);              //   opening cut out of it
-  box(-41.5, F2 + 0.2, BZ - 9.5, 3, 0.4, 1, C.panelDark);
-  box(-41.5, F2 + 0.2, BZ + 3.25, 3, 0.4, 13.5, C.panelDark);
-  box(BX, F2 + 0.9, BZ - bwz + 0.3, BW, 1, 0.5, C.panelWorn);
-  box(BX, F2 + 0.9, BZ + bwz - 0.3, BW, 1, 0.5, C.panelWorn);
-  box(BX - bwx + 0.3, F2 + 0.9, BZ, 0.5, 1, BD, C.panelWorn);
-  box(BX + bwx - 0.3, F2 + 0.9, BZ + 4, 0.5, 1, 12, C.panelWorn);
+  // frame carrying the (much larger) ARK sign above the parapet
+  for (const fz of [0.5, 7.5]) box(-27.4, 10.4, BZ + fz, 0.35, 4.5, 0.35, C.rebar);
+  box(-27.4, 12.5, BZ + 4, 0.35, 0.25, 7.4, C.rebar);
 
-  // --- column grid: the cover that makes the shop floor playable --------------
-  for (const cx of [-41.5, -37, -32.5]) {
-    for (const cz of [-7, -2.5, 2, 6.5]) {
-      box(cx, F1 / 2, BZ + cz, 0.7, F1, 0.7, C.panelWorn);
+  // roof, with the tail through it
+  box(-41.5, WALL_TOP + 0.2, BZ, 5, 0.4, BD, C.panelDark);
+  box(-30.5, WALL_TOP + 0.2, BZ, 5, 0.4, BD, C.panelDark);
+  box(BX, WALL_TOP + 0.2, BZ - 11, 6, 0.4, 6, C.panelDark);
+  box(BX, WALL_TOP + 0.2, BZ + 11.5, 6, 0.4, 5, C.panelDark);
+  for (const [pz, pw] of [[-bwz + 0.3, BW], [bwz - 0.3, BW]]) {
+    box(BX, WALL_TOP + 0.9, BZ + pz, pw, 1, 0.5, C.panelWorn);
+  }
+  box(BX - bwx + 0.3, WALL_TOP + 0.9, BZ, 0.5, 1, BD, C.panelWorn);
+  box(BX + bwx - 0.3, WALL_TOP + 0.9, BZ + 8, 0.5, 1, 12, C.panelWorn);
+  crooked(-33.5, 8.6, BZ - 6, 3.4, 0.3, 3, C.panelDark, [0.22, 0.3, -0.16]);   // peeled roof panel
+
+  // --- the aircraft -----------------------------------------------------------
+  const PLANE = "#e8ecf3", PLANE2 = "#d5d9e0", TRIM = "#2f5d9e";
+  // [z, centre height, radius] - the spine rises from nose to tail, and the tops
+  // of these sections are the steps you walk up.
+  const SECTIONS = [
+    [-18.5, 1.0, 1.1], [-15.5, 1.6, 1.6], [-12.5, 2.3, 1.95], [-9.5, 3.0, 2.1],
+    [-6.5, 3.8, 2.1], [-3.5, 4.6, 2.1], [-0.5, 5.4, 2.0], [2.5, 6.2, 1.8], [5.5, 7.0, 1.5],
+  ];
+  SECTIONS.forEach(([sz, sy, r], i) => {
+    box(BX, sy, sz, 2 * r, 1.5 * r, 3.0, i % 2 ? PLANE : PLANE2);           // barrel
+    box(BX, sy + 0.85 * r, sz, 1.4 * r, 0.6 * r, 3.0, i % 2 ? PLANE : PLANE2);  // crown
+    box(BX, sy - 0.85 * r, sz, 1.4 * r, 0.6 * r, 3.0, i % 2 ? PLANE : PLANE2);  // belly
+    decal(BX - r - 0.05, sy + 0.35 * r, sz, 0.12, 0.36, 2.8, TRIM);         // cheatline
+    decal(BX + r + 0.05, sy + 0.35 * r, sz, 0.12, 0.36, 2.8, TRIM);
+    if (i > 1 && i < 8) {                                                    // cabin windows
+      for (const side of [-1, 1]) {
+        for (let w = -1; w <= 1; w++) {
+          decal(BX + side * (r + 0.05), sy + 0.62 * r, sz + w * 0.9, 0.1, 0.26, 0.26, "#1a2233");
+        }
+      }
     }
+  });
+  // cockpit glazing and nose
+  for (const side of [-1, 1]) {
+    decal(BX + side * 1.0, 1.35, -19.4, 0.12, 0.5, 1.0, "#1a2233");
+  }
+  decal(BX, 1.5, -20.0, 1.4, 0.5, 0.12, "#1a2233");
+
+  // wings: port sheared at the wall, starboard driven out through the shopfront
+  box(-40.4, 3.6, -5.5, 7.2, 0.5, 6, PLANE);
+  box(-31.5, 3.6, -5.5, 9, 0.5, 5.9, PLANE);
+  crooked(-22.6, 3.3, -5.5, 4.5, 0.4, 4.6, PLANE, [0.1, 0.22, -0.24]);       // torn outer panel
+  box(-40, 2.5, -8.4, 2.8, 2.4, 3.4, C.slate);                               // engines
+  box(-32, 2.5, -8.4, 2.8, 2.4, 3.4, C.slate);
+  prop(-40, 2.5, -10.2, 2.4, 2.0, 0.3, "#1a2233", { solid: false });
+  prop(-32, 2.5, -10.2, 2.4, 2.0, 0.3, "#1a2233", { solid: false });
+
+  // tail: fin driven up through the roof, stabilisers either side
+  box(BX, 10.2, 6.8, 0.7, 6.4, 4.4, PLANE);
+  box(BX, 7.9, 6.8, 9, 0.4, 2.8, PLANE);
+  decal(BX, 8.2, 6.8, 9.1, 0.24, 2.6, TRIM);
+
+  // undercarriage, collapsed
+  crooked(BX - 1.6, 0.6, -12, 0.9, 1.2, 0.9, C.slate, [0.4, 0.2, 0.5]);
+  crooked(BX + 1.5, 0.5, -12.4, 0.9, 1.0, 0.9, C.slate, [-0.3, 0.5, -0.4]);
+
+  // --- fire and wreckage ------------------------------------------------------
+  for (const [fx, fy, fz, fs] of [[-40, 3.6, -8.4, 1.8], [-32, 3.6, -8.4, 1.8],
+                                  [BX, 2.4, -13.5, 2.2], [BX - 2, 1.2, -9, 1.4]]) {
+    prop(fx, fy, fz, fs, fs * 0.8, fs, "#ff7326", { solid: false });          // flame
+    prop(fx, fy + fs * 0.5, fz, fs * 0.6, fs * 0.5, fs * 0.6, "#ffd873", { solid: false });
+  }
+  decal(BX, 0.19, -11.8, 12.6, 0.06, 15.2, "#3a3632");                       // scorched floor
+  for (let i = 0; i < 16; i++) {
+    const a = i * 2.3;
+    crooked(BX + Math.cos(a) * (3.5 + i * 0.45), 0.22 + (i % 3) * 0.2, -10 + Math.sin(a) * (4 + i * 0.45),
+            0.7 + (i % 3) * 0.5, 0.16, 0.55 + (i % 2) * 0.4,
+            i % 3 ? PLANE : C.panelDark, [0.12 * (i % 4), a, 0.1 * (i % 5 - 2)]);
   }
 
-  // --- shopfittings -----------------------------------------------------------
-  function rack(x, z, len) {                                       // steel shelving
+  // --- what is left of the shop ----------------------------------------------
+  for (const cx of [-41.5, -30.5]) {
+    for (const cz of [4, 9]) box(cx, WALL_TOP / 2, BZ + cz, 0.7, WALL_TOP, 0.7, C.panelWorn);
+  }
+  function rack(x, z, len) {
     box(x, 1.05, z, 0.9, 2.1, len, C.slate);
     const spines = [C.book1, C.book2, C.book3, C.book4];
     for (let i = 0; i < Math.floor(len / 0.95); i++) {
       const off = -len / 2 + 0.5 + i * 0.95;
-      prop(x, 1.5, z + off, 0.95, 0.42, 0.86, spines[i % 4], { solid: false });
-      prop(x, 0.72, z + off, 0.95, 0.42, 0.86, spines[(i + 2) % 4], { solid: false });
+      prop(x, 1.5, z + off, 0.94, 0.42, 0.86, spines[i % 4], { solid: false });
+      prop(x, 0.72, z + off, 0.94, 0.42, 0.86, spines[(i + 2) % 4], { solid: false });
     }
   }
-  rack(-39.5, BZ + 4.5, 7);
-  rack(-35, BZ + 4.5, 7);
-  rack(-39.5, BZ - 5.5, 6);
-  box(-32.8, 0.55, BZ - 1.5, 2.6, 1.1, 4, C.slate);                // service counter
-  prop(-32.8, 1.2, BZ - 2.6, 0.5, 0.2, 0.6, C.monitor, { solid: false });
-  crooked(-34.6, 0.4, BZ + 8.6, 1.2, 0.8, 1.2, C.wood, [0, 0.3, 0.05]);   // stock crate
-  crooked(-33.4, 0.36, BZ + 7.8, 1.0, 0.7, 1.0, C.wood, [0, -0.5, 0.04]);
-
-  // first floor up to the roof, inside the west bay, under the stairwell opening
-  stairsAt(F1 + 0.4, -41.5, BZ - 9.0, 4.0, 5, 3, "z", 1, C.panelWorn);
-
-  // --- external stair, courtyard side ----------------------------------------
-  // Ground to first floor outside the building, landing hard against the facade
-  // so there is no slot behind it, then in through the upper door.
-  stairs(-28.5, BZ - 14, F1 + 0.4, 5, 3, "z", 1, C.panelWorn);
-  box(-28.5, F1 + 0.2, BZ - 7.5, 4, 0.4, 2, C.panelWorn);          // landing at the door
-  box(-26.8, F1 + 0.9, BZ - 7.5, 0.3, 1.0, 2, C.rebar);            // its handrail
-
-  // frame for the sign on the roof
-  for (const fz of [-1.4, 3.4]) box(-30.9, F2 + 1.4, BZ + fz, 0.3, 2.4, 0.3, C.rebar);
-  box(-30.9, F2 + 2.6, BZ + 1, 0.3, 0.22, 5, C.rebar);
-
-  // --- roof clutter -----------------------------------------------------------
-  box(BX - 3, F2 + 1.0, BZ + 6, 2.4, 1.6, 2.4, C.slate);           // plant housing
-  box(BX + 3, F2 + 0.85, BZ - 2, 1.8, 1.3, 1.8, C.slate);
-  prop(BX + 3, F2 + 1.8, BZ - 2, 1.4, 0.5, 1.4, C.metal);
-  for (const [dx, dz] of [[-41, -7], [-39, 8]]) {                  // satellite dishes
-    prop(dx, F2 + 0.9, BZ + dz, 0.24, 1.4, 0.24, C.metal, { solid: false });
-    crooked(dx, F2 + 1.6, BZ + dz, 1.5, 0.24, 1.5, C.white, [0.55, 0.4, 0], { solid: false });
+  rack(-39.5, BZ + 8, 7);
+  rack(-36, BZ + 8.5, 6);
+  rack(-32.5, BZ + 8, 7);
+  crooked(-38.5, 0.5, BZ + 2.5, 5, 0.9, 1.6, C.slate, [0, 0.12, 0.06]);      // crushed by the wing
+  crooked(-33, 0.45, BZ + 1.5, 4.6, 0.85, 1.5, C.slate, [0, -0.16, -0.05]);
+  box(-30.2, 0.55, BZ + 5, 2.4, 1.1, 3.4, C.slate);                          // counter
+  const strewn = [C.book1, C.book2, C.book3, C.book4];
+  for (let i = 0; i < 18; i++) {
+    const a = i * 1.7;
+    crooked(-36 + Math.cos(a) * (2 + (i % 5)), 0.13, BZ + 3 + Math.sin(a) * (1.5 + (i % 4)),
+            0.5, 0.15, 0.34, strewn[i % 4], [0, a, 0.05 * (i % 3 - 1)]);
   }
-  prop(BX, F2 + 0.7, BZ + 9.2, 12, 0.18, 0.18, C.rebar, { solid: false });   // aerial run
 
-  // --- mosaic mural on the north gable ----------------------------------------
-  const tiles = [C.mosaicA, C.mosaicB, C.mosaicC, C.mosaicD];
-  for (let i = 0; i < 44; i++) {
-    const mx = -43 + (i % 11) * 1.15;
-    const my = 1.6 + Math.floor(i / 11) * 1.15;
-    decal(mx, my, BZ - bwz - 0.35, 1.05, 1.05, 0.12, tiles[(i * 3 + Math.floor(i / 11)) % 4]);
-  }
 
   // --- courtyard --------------------------------------------------------------
-  // carpet-beating rack: the most Eastern-bloc object there is
   for (const ox of [-1.9, 1.9]) {
-    box(-26 + ox, 1.1, BZ + 15, 0.22, 2.2, 0.22, C.rebar);
-    box(-26 + ox, 1.1, BZ + 17.6, 0.22, 2.2, 0.22, C.rebar);
+    box(-23.5 + ox, 1.1, 15, 0.22, 2.2, 0.22, C.rebar);
+    box(-23.5 + ox, 1.1, 17.6, 0.22, 2.2, 0.22, C.rebar);
   }
-  box(-26, 2.1, BZ + 16.3, 4.2, 0.16, 0.16, C.rebar);
-  box(-26, 1.5, BZ + 16.3, 4.2, 0.14, 0.14, C.rebar);
-  crooked(-26.6, 1.75, BZ + 16.3, 1.6, 0.06, 1.2, "#7d5a86", [0.06, 0, 0.04]);  // a rug left out
+  box(-23.5, 2.1, 16.3, 4.2, 0.16, 0.16, C.rebar);
+  box(-23.5, 1.5, 16.3, 4.2, 0.14, 0.14, C.rebar);
+  crooked(-24.1, 1.75, 16.3, 1.6, 0.06, 1.2, "#7d5a86", [0.06, 0, 0.04]);
 
-  // climbing frame, rusted
-  for (const ox of [-1.6, 1.6]) box(-26 + ox, 1.0, BZ + 20.5, 0.18, 2.0, 0.18, C.rust);
-  box(-26, 1.95, BZ + 20.5, 3.6, 0.16, 0.16, C.rust);
-  for (const oz of [-0.6, 0.6]) box(-26, 1.0, BZ + 20.5 + oz, 3.6, 0.12, 0.12, C.rust);
+  for (const ox of [-1.6, 1.6]) box(-23.5 + ox, 1.0, 21.5, 0.18, 2.0, 0.18, C.rust);
+  box(-23.5, 1.95, 21.5, 3.6, 0.16, 0.16, C.rust);
 
-  // dead fountain: a cracked basin with nothing in it
   for (const [ox, oz, w, d] of [[0, -2.6, 6, 0.5], [0, 2.6, 6, 0.5], [-2.75, 0, 0.5, 5.7], [2.75, 0, 0.5, 5.7]]) {
-    box(-26.5 + ox, 0.45, BZ + 11 + oz, w, 0.9, d, C.panelWorn);
+    box(-24 + ox, 0.45, 8 + oz, w, 0.9, d, C.panelWorn);
   }
-  decal(-26.5, 0.2, BZ + 11, 5, 0.1, 4.7, C.ash);
-  crooked(-26.5, 0.7, BZ + 11, 0.8, 1.4, 0.8, C.panelWorn, [0.22, 0.3, 0.1]);   // toppled plinth
+  decal(-24, 0.24, 8, 4.9, 0.1, 4.6, C.ash);
+  crooked(-24, 0.7, 8, 0.8, 1.4, 0.8, C.panelWorn, [0.22, 0.3, 0.1]);
 
-  // kiosk
-  box(-28, 1.4, BZ + 24, 3.2, 2.8, 3.2, C.paint);
-  box(-28, 2.95, BZ + 24, 3.8, 0.3, 3.8, C.slate);
-  decal(-29.65, 1.6, BZ + 24, 0.12, 1.2, 2.0, C.window);
-  crooked(-28, 3.5, BZ + 24, 2.4, 0.6, 0.14, C.ark, [0, 0, 0.07]);             // its crooked sign
+  box(-24.5, 1.4, 26, 3.2, 2.8, 3.2, C.paint);                               // kiosk
+  box(-24.5, 2.95, 26, 3.8, 0.3, 3.8, C.slate);
+  decal(-26.15, 1.6, 26, 0.12, 1.2, 2.0, C.window);
+  crooked(-24.5, 3.5, 26, 2.4, 0.6, 0.14, C.ark, [0, 0, 0.07]);
 
-  // planters and bollards along the apron
-  for (const pz of [12, 16, 20, 26]) {
-    box(-28.6, 0.4, BZ + pz, 1.4, 0.8, 2.6, C.panelWorn);
-    prop(-28.6, 1.0, BZ + pz, 1.1, 0.7, 2.2, C.leaf, { solid: false });
+  for (const pz of [13, 19, 24]) {
+    box(-26.4, 0.4, pz, 1.4, 0.8, 2.6, C.panelWorn);
+    prop(-26.4, 1.05, pz, 1.1, 0.66, 2.2, C.leaf, { solid: false });
   }
-  for (const pz of [9.5, 13, 22, 26]) box(-23.2, 0.35, BZ + pz, 0.3, 0.7, 0.3, C.rebar);
-
-  // a boxy little car, long dead
-  box(-22.4, 0.62, BZ + 21, 2.0, 0.85, 4.4, "#8c9a7d");
-  box(-22.4, 1.35, BZ + 21.3, 1.8, 0.7, 2.2, "#8c9a7d");
-  for (const [wx2, wz2] of [[-1.0, -1.5], [1.0, -1.5], [-1.0, 1.5], [1.0, 1.5]]) {
-    prop(-22.4 + wx2, 0.32, BZ + 21 + wz2, 0.3, 0.62, 0.62, C.monitor, { solid: false });
-  }
-
-  // ============================== the aircraft that came down on Blokk 4
-  // It skidded in from the east and buried its nose through the shopfront. The
-  // fuselage steps down as it goes, which makes it a climbable ramp from the
-  // courtyard up onto the first floor - the reason it is laid out this way.
-  const PLANE = "#e8ecf3", TRIM = "#2f5d9e";
-  const hull = [
-    [-21.5, 2.4, 3.4, 4.4, 3.6],     // tail, sitting high
-    [-25.0, 2.1, 3.6, 3.8, 3.4],
-    [-28.5, 1.8, 3.6, 3.2, 3.2],     // through the shopfront here
-    [-32.0, 1.5, 3.6, 2.6, 3.3],   // meets the column, no slot
-    [-35.0, 1.2, 2.8, 2.0, 2.4],     // nose, buried in the shop floor
-  ];
-  hull.forEach(([hx, hy, sx, sy, sz], i) => {
-    box(hx, hy, BZ, sx, sy, sz, i === 4 ? "#d8d2c4" : PLANE);
-    decal(hx, hy + sy / 2 - 0.5, BZ - sz / 2 - 0.06, sx * 0.95, 0.34, 0.12, TRIM);   // cheatline
-    decal(hx, hy + sy / 2 - 0.5, BZ + sz / 2 + 0.06, sx * 0.95, 0.34, 0.12, TRIM);
-    for (const wz of [-1, 1]) {                                                      // cabin windows
-      for (let w = 0; w < 3; w++) {
-        decal(hx - sx / 3 + w * (sx / 3), hy + sy / 2 - 0.95, BZ + wz * (sz / 2 + 0.05),
-              0.22, 0.22, 0.1, C.window);
-      }
-    }
-  });
-
-  // tail fin and stabilisers
-  box(-20.6, 6.2, BZ, 0.5, 3.6, 2.8, PLANE);
-  decal(-20.35, 6.6, BZ, 0.12, 2.4, 1.8, TRIM);
-  box(-20.6, 4.5, BZ, 0.5, 0.28, 7, PLANE);
-
-  // the wing that stayed on: a walkable slab over the north courtyard
-  box(-24.5, 2.3, BZ - 7, 5, 0.4, 10, PLANE);                   // clear of the outside stair
-  box(-24.7, 1.15, BZ - 9.5, 2.4, 2.0, 2.4, C.slate);            // engine, under the wing
-  prop(-24.7, 1.15, BZ - 10.8, 2.0, 1.7, 0.3, C.monitor, { solid: false });
-  crooked(-23.0, 2.62, BZ - 11.6, 2.4, 0.14, 2.0, PLANE, [0.12, 0.2, -0.3]);   // torn winglet
-
-  // the wing that did not: sheared off and lying in the yard
-  crooked(-24.5, 0.7, BZ + 6.5, 9, 0.35, 3.4, PLANE, [0.05, 0.42, 0.12]);
-  crooked(-21.8, 1.1, BZ + 9.6, 2.2, 1.8, 2.2, C.slate, [0.2, 0.3, 0.5]);      // its engine, thrown clear
-
-  // debris and scorching
-  for (let i = 0; i < 14; i++) {
-    const a = i * 2.4;
-    crooked(-27 + Math.cos(a) * (3 + i * 0.55), 0.2 + (i % 3) * 0.18, BZ + Math.sin(a) * (4 + i * 0.5),
-            0.8 + (i % 3) * 0.5, 0.16, 0.6 + (i % 2) * 0.4,
-            i % 3 ? PLANE : C.slate, [0.1 * (i % 4), a, 0.08 * (i % 5 - 2)]);
-  }
-  decal(-27.5, 0.2, BZ, 14, 0.06, 7, "#3a3632");                  // scorched apron
-  decal(-30.4, 2.2, BZ, 0.1, 3.4, 3.4, "#2a2724");                // soot around the entry hole
-  for (const [rx, rz] of [[-29.2, -2.6], [-29.2, 2.6], [-30.6, 0]]) {
-    crooked(rx, 0.5, BZ + rz, 1.2, 1.0, 1.0, C.panelDark, [0.2, 0.4, 0.15]);   // blown-out panels
-  }
-
-  // service pipes along the base of the block
-  prop(-29.7, 1.9, BZ, 0.3, 0.3, 18, C.rust, { solid: false });
-  prop(-29.7, 0.9, BZ - 3, 0.24, 0.24, 12, C.rust, { solid: false });
+  box(-21.4, 0.62, 21, 2.0, 0.85, 4.4, "#8c9a7d");                           // the old car
+  box(-21.4, 1.35, 21.3, 1.8, 0.7, 2.2, "#8c9a7d");
 
   // ==================================================== street furniture
   // Bays, stalls and scaffolding along the block, so the edges are somewhere to
@@ -657,7 +617,7 @@
     // than under it, which would trap anyone climbing
     stairs(x + 6.0, z, 2.1, 3, 2.6, "x", -1, C.metal);
   }
-  scaffold(-40, -20); scaffold(38, 20);   // kept clear of the block, or the stair runs into it
+  scaffold(-38, -34); scaffold(38, 20);   // kept clear of buildings and of the wreck
 
   // stacked crates in the corners
   for (const [cx, cz] of [[-42, -40], [42, 40], [42, -40], [-42, 40]]) {
@@ -668,7 +628,7 @@
 
   // bus shelter on the south edge
   box(6, 1.4, 42, 6, 0.25, 2.6, C.metal);
-  for (const ox of [-2.8, 2.8]) box(6 + ox, 1.4, 42, 0.22, 2.8, 2.4, C.glass, { solid: false, collide: true, opacity: 0.3 });
+  for (const ox of [-2.8, 2.8]) box(6 + ox, 1.4, 42, 0.36, 2.8, 2.4, C.glass, { opacity: 0.3 });
   box(6, 0.5, 43, 5.7, 1.0, 0.5, C.wood);
   plant(-20, 14); plant(20, -14); plant(-44, 6); plant(44, -6);
   // east: pallets and crates by the stairs
@@ -694,9 +654,14 @@
       target: { id: "norli-roof", hp: 126, points: 0, radius: 2.0 } },
     { file: "assets/bookis-logo.json", pos: [0, 5.4, -22.85], height: 1.0, depth: 0.25 },
     // ARK's sign still hangs on the one wall left standing, but not straight
-    { file: "assets/ark-logo.json", pos: [-30.9, 9.9, BZ + 1], height: 2.6, depth: 0.4,
-      rotY: Math.PI / 2, rotZ: -0.09,
-      target: { id: "ark-sign", hp: 108, points: 0, radius: 1.8 } },
+    { file: "assets/ark-logo.json", pos: [-27.4, 11.4, BZ + 4], height: 5.0, depth: 0.5,
+      rotY: Math.PI / 2, rotZ: -0.07,
+      target: { id: "ark-sign", hp: 108, points: 0, radius: 3.0 } },
+    // and on the tail fin of the aircraft that came down on the place
+    { file: "assets/ark-logo.json", pos: [-36.45, 10.6, 6.8], height: 3.2, depth: 0.15,
+      rotY: -Math.PI / 2 },
+    { file: "assets/ark-logo.json", pos: [-35.55, 10.6, 6.8], height: 3.2, depth: 0.15,
+      rotY: Math.PI / 2 },
   ];
 
   // ================================================================= zones
@@ -709,14 +674,12 @@
   // ================================================================ lights
   // Point lights placed in the world; `flicker` is animated client-side.
   const lights = [
-    { pos: [-31.8, 9.6, BZ + 1], color: C.ark, intensity: 3.0, distance: 20, flicker: true },
-    { pos: [-37, 3.1, BZ + 3], color: "#cfe6d8", intensity: 1.0, distance: 15, flicker: true },
-    { pos: [-40, 3.1, BZ - 6], color: "#cfe6d8", intensity: 0.8, distance: 13 },
-    { pos: [-27, 4.6, BZ - 4], color: C.sodium, intensity: 1.6, distance: 18, flicker: true },
-    { pos: [-28, 2.4, BZ + 24], color: C.sodium, intensity: 0.9, distance: 10 },
-    // fires still burning in the wreck
-    { pos: [-29.5, 1.6, BZ], color: "#ff7326", intensity: 2.6, distance: 16, flicker: true },
-    { pos: [-24.9, 1.8, BZ - 9.5], color: "#ff8a3d", intensity: 1.8, distance: 12, flicker: true },
+    { pos: [-27.4, 11.0, BZ + 4], color: C.ark, intensity: 3.2, distance: 22, flicker: true },
+    { pos: [-36, 3.2, -13], color: "#ff7326", intensity: 3.4, distance: 20, flicker: true },
+    { pos: [-40, 3.4, -8.4], color: "#ff8a3d", intensity: 2.2, distance: 14, flicker: true },
+    { pos: [-32, 3.4, -8.4], color: "#ff8a3d", intensity: 2.2, distance: 14, flicker: true },
+    { pos: [-36, 5.5, 2], color: "#cfe6d8", intensity: 0.9, distance: 16, flicker: true },
+    { pos: [-24.5, 2.4, 26], color: C.sodium, intensity: 0.9, distance: 10 },
   ];
 
   // =============================================================== effects
@@ -724,12 +687,11 @@
   // Paper caught in the updraught between the block and the courtyard wall.
   const PAPER = ["#d8cbb0", "#e8e4d6", "#c9c2ae", "#b9b3a0"];
   const effects = [
-    { type: "bookRing", pos: [-26.5, 2.4, BZ - 1], radius: 3.4, count: 14, spin: 0.22, tilt: 0.06, colors: PAPER },
-    { type: "bookRing", pos: [-26.5, 4.6, BZ - 1], radius: 2.0, count: 9, spin: -0.34, tilt: -0.12, colors: PAPER },
-    { type: "bookRing", pos: [-24, 1.5, BZ + 13], radius: 1.4, count: 7, spin: 0.5, tilt: 0.2, colors: PAPER },
-    // smoke off the wreck
-    { type: "smoke", pos: [-29.6, 2.6, BZ], radius: 1.5, count: 16, rise: 4.5, spin: 0.16 },
-    { type: "smoke", pos: [-24.9, 2.4, BZ - 9.5], radius: 1.1, count: 11, rise: 3.6, spin: -0.2 },
+    { type: "smoke", pos: [-36, 4.5, -13], radius: 2.4, count: 20, rise: 9, spin: 0.14 },
+    { type: "smoke", pos: [-36, 9, 5], radius: 2.0, count: 16, rise: 8, spin: -0.1 },
+    { type: "smoke", pos: [-40, 3.6, -8.4], radius: 1.2, count: 10, rise: 5, spin: 0.2 },
+    { type: "smoke", pos: [-32, 3.6, -8.4], radius: 1.2, count: 10, rise: 5, spin: -0.22 },
+    { type: "bookRing", pos: [-30, 3.0, -4], radius: 3.0, count: 12, spin: 0.2, tilt: 0.08, colors: PAPER },
   ];
 
   // ================================================================= spawns

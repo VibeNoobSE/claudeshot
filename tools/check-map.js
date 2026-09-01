@@ -127,6 +127,57 @@ if (slots.length) {
   console.log("PASS  no squeeze traps (no sub-" + NEED.toFixed(2) + "m slots)");
 }
 
+// --- coplanar overlaps: surfaces that fight for the same depth ---------------
+// Two boxes whose top faces sit at the same height and whose footprints overlap
+// cannot be separated by the depth buffer, and the seam flickers violently as
+// the camera moves. Same for their sides.
+const zfight = [];
+const ALL = MAP.boxes.map((b) => ({
+  b,
+  mn: [0, 1, 2].map((i) => b.pos[i] - b.size[i] / 2),
+  mx: [0, 1, 2].map((i) => b.pos[i] + b.size[i] / 2),
+}));
+for (let i = 0; i < ALL.length; i++) {
+  for (let j = i + 1; j < ALL.length; j++) {
+    const a = ALL[i], c = ALL[j];
+    for (let axis = 0; axis < 3; axis++) {
+      const u = (axis + 1) % 3, v = (axis + 2) % 3;
+      // overlapping footprint on the other two axes?
+      const ou = Math.min(a.mx[u], c.mx[u]) - Math.max(a.mn[u], c.mn[u]);
+      const ov = Math.min(a.mx[v], c.mx[v]) - Math.max(a.mn[v], c.mn[v]);
+      if (ou <= 0.02 || ov <= 0.02) continue;
+      // Two flush faces of the same colour are effectively invisible even when
+      // they fight. What reads as flicker on screen is two DIFFERENT colours
+      // competing for the same plane, so that is what we report.
+      if (a.b.color === c.b.color) continue;
+      // Compare like with like: two TOP faces, or two BOTTOM faces. A wall
+      // standing on the floor shares floor-top with wall-bottom, and that never
+      // flickers because one surface is buried against the other.
+      // On the vertical axis only matching TOPS can flicker: matching bottoms are
+      // buried against whatever the boxes are standing on.
+      const faces = axis === 1
+        ? [[a.mx[axis], c.mx[axis]]]
+        : [[a.mn[axis], c.mn[axis]], [a.mx[axis], c.mx[axis]]];
+      for (const [fa, fc] of faces) {
+        {
+          if (Math.abs(fa - fc) < 0.004) {
+            zfight.push("  " + "xyz"[axis] + "=" + fa.toFixed(3) + "  " + a.b.color + " [" +
+              a.b.pos.map((n) => n.toFixed(1)) + "] vs " + c.b.color + " [" +
+              c.b.pos.map((n) => n.toFixed(1)) + "]  overlap " + ou.toFixed(1) + "x" + ov.toFixed(1));
+          }
+        }
+      }
+    }
+  }
+}
+if (zfight.length) {
+  const uniq = [...new Set(zfight)];
+  fail(uniq.length + " coplanar face pair(s) that will flicker:");
+  uniq.slice(0, 14).forEach((l) => console.log(l));
+} else {
+  console.log("PASS  no coplanar faces (nothing will z-fight)");
+}
+
 // --- spawns and pickups must be clear ---------------------------------------
 const badSpawns = MAP.spawns.filter((sp) => !standable(sp[0], sp[1], sp[2], null));
 if (badSpawns.length) fail("blocked spawns: " + badSpawns.map((s) => s.join(",")).join(" | "));
