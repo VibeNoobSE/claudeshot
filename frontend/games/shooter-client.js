@@ -316,6 +316,8 @@
     // recoil as a damped spring rather than random jitter
     let recoilP = 0, recoilVelP = 0, recoilY = 0, recoilVelY = 0, shotParity = 1;
     let crouch = 0;         // 0 upright, 1 fully ducked
+    let stuckFor = 0;       // seconds spent trying to move and going nowhere
+    const lastPos = new THREE.Vector3();
     let wantCrouch = false;
     let aiming = false;
     let ads = 0;            // 0 hip, 1 sighted
@@ -949,6 +951,11 @@
       if (e.code === "ShiftLeft" || e.code === "ShiftRight" ||
           e.code === "ControlLeft" || e.code === "ControlRight") wantCrouch = true;
       if (e.code === "KeyR") reload();
+      if (e.code === "KeyU" && alive && !matchOver) {      // manual escape hatch
+        teleport(nearestSpawn(camera.position));
+        stuckFor = 0;
+        hud.toast("UNSTUCK", "#f7c948");
+      }
       if (e.code === "KeyF") {
         if (document.fullscreenElement) document.exitFullscreen();
         else wrap.requestFullscreen?.().then(() => renderer.domElement.requestPointerLock()).catch(() => {});
@@ -1113,6 +1120,40 @@
     }, SEND_MS);
     s.intervals.push(sendTimer);
 
+    // ---- last resort: get the player out of anything that traps them --------
+    // Collision against a mesh can wedge a capsule in ways the map checks do not
+    // predict. Rather than rely on having found every one, notice when someone is
+    // asking to move and going nowhere, and put them back in play.
+    function nearestSpawn(from) {
+      let best = MAP.spawns[0];
+      let bestD = Infinity;
+      for (const sp of MAP.spawns) {
+        const d = (sp[0] - from.x) ** 2 + (sp[2] - from.z) ** 2;
+        if (d < bestD) { bestD = d; best = sp; }
+      }
+      return best;
+    }
+
+    function checkStuck(dt) {
+      if (!alive || matchOver || countdown > 0 || !locked) { stuckFor = 0; return; }
+      const wantsToMove = keys.KeyW || keys.KeyS || keys.KeyA || keys.KeyD ||
+        keys.ArrowUp || keys.ArrowDown || keys.ArrowLeft || keys.ArrowRight;
+      if (!wantsToMove) { stuckFor = 0; lastPos.copy(camera.position); return; }
+
+      if (camera.position.distanceToSquared(lastPos) > 0.5 * 0.5) {
+        stuckFor = 0;
+        lastPos.copy(camera.position);
+        return;
+      }
+      stuckFor += dt;
+      if (stuckFor > 4) {
+        stuckFor = 0;
+        teleport(nearestSpawn(camera.position));
+        lastPos.copy(camera.position);
+        hud.toast("UNSTUCK", "#f7c948");
+      }
+    }
+
     // ------------------------------------------------------- weapon animation
     const GUN_BASE = gun.base;
     const GUN_ADS = { x: 0.27, y: -0.27, z: -0.5 };   // held clear of the centre, never over it
@@ -1181,6 +1222,7 @@
         applyInput(sub);
         stepPlayer(sub);
       }
+      checkStuck(dt);
       updateAvatars(dt);
       updatePickups(dt);
       updateModels(dt);
@@ -1316,6 +1358,7 @@
       '<div style="font-size:0.85rem;color:#c9d2e3;line-height:1.8;">' +
       '<b>WASD</b> move &nbsp;·&nbsp; <b>Space</b> jump &nbsp;·&nbsp; <b>Shift/Ctrl</b> duck<br>' +
       '<b>Right-click</b> aim down sights &nbsp;·&nbsp; <b>Mouse</b> look<br>' +
+      '<b>U</b> unstick if you are ever trapped<br>' +
       '<b>Click</b> fire &nbsp;·&nbsp; <b>R</b> reload &nbsp;·&nbsp; <b>F</b> fullscreen &nbsp;·&nbsp; <b>Esc</b> release cursor<br>' +
       '<span style="color:#8892a4">Grab the glowing pickups: health, shield, 2\u00d7 damage, speed</span></div>'
     );
