@@ -719,13 +719,13 @@
   // =============================================================== pickups
   // type: health | ammo | damage | speed
   const pickups = [
-    { id: "h1", type: "health", pos: [0, 0.6, -20] },        // by the fountain
+    { id: "h1", type: "health", pos: [0, 0.6, -20] },        // by the castle gate
     { id: "h2", type: "health", pos: [0, 0.6, 27] },         // office, behind the pod
-    { id: "a1", type: "ammo",   pos: [-38, 0.6, 4.5] },      // ARK shop floor, between the racks
-    { id: "a2", type: "ammo",   pos: [30, 0.6, 0] },         // east plaza
-    { id: "d1", type: "damage", pos: [0, 9.4, -26] },        // castle keep roof — high risk
-    { id: "a3", type: "ammo",   pos: [0, 6.4, 0] },          // Norli roof
-    { id: "s1", type: "speed",  pos: [3.2, 0.7, 0] },        // shop aisle, between the shelves
+    { id: "s1", type: "speed",  pos: [3.2, 0.7, 0] },        // Norli aisle, between the shelves
+    { id: "s2", type: "speed",  pos: [30, 0.6, 0] },         // east plaza
+    { id: "p1", type: "shield", pos: [-38, 0.6, 4.5] },      // ARK shop floor, under the wreck
+    { id: "p2", type: "shield", pos: [0, 6.4, 0] },          // Norli roof, out in the open
+    { id: "d1", type: "damage", pos: [0, 9.4, -26] },        // castle keep roof - high risk
   ];
 
   return {

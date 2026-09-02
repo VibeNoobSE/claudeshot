@@ -301,7 +301,7 @@
     let firing = false;
     let lastFire = 0;
     let countdown = 0;
-    let buffs = { bd: 0, bs: 0 };
+    let buffs = { bd: 0, bs: 0, bp: 0 };
     let speedMul = 1;
     let gunPhase = 0;
     let recoil = 0;
@@ -731,14 +731,14 @@
 
     // --------------------------------------------------------------- pickups
     const PICKUP_STYLE = {
-      health: { color: 0x4ecca3, label: "+50 HEALTH",    short: "HP" },
-      ammo:   { color: 0xf7c948, label: "AMMO REFILLED", short: "AMMO" },
-      damage: { color: 0xff7a3d, label: "2\u00d7 DAMAGE",   short: "2\u00d7 DMG" },
-      speed:  { color: 0x5dade2, label: "SPEED BOOST",   short: "SPEED" },
+      health: { color: 0x4ecca3, label: "+65 HEALTH",     short: "HP" },
+      damage: { color: 0xff7a3d, label: "2\u00d7 DAMAGE",    short: "2\u00d7 DMG" },
+      speed:  { color: 0x5dade2, label: "SPEED BOOST",    short: "SPEED" },
+      shield: { color: 0xb58cff, label: "SHIELD \u00b7 HALF DAMAGE", short: "SHIELD" },
     };
 
     function buildPickupIcon(type) {
-      const style = PICKUP_STYLE[type] || PICKUP_STYLE.ammo;
+      const style = PICKUP_STYLE[type] || PICKUP_STYLE.health;
       const mat = new THREE.MeshLambertMaterial({ color: style.color, emissive: style.color, emissiveIntensity: 0.35 });
       const icon = new THREE.Group();
       if (type === "health") {
@@ -750,6 +750,13 @@
         icon.add(band);
       } else if (type === "damage") {
         icon.add(new THREE.Mesh(new THREE.OctahedronGeometry(0.38), mat));
+      } else if (type === "shield") {
+        const plate = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.6, 0.12), mat);
+        icon.add(plate);
+        const rim = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.14, 0.18),
+          new THREE.MeshLambertMaterial({ color: 0xffffff }));
+        rim.position.y = 0.2;
+        icon.add(rim);
       } else {
         const cone = new THREE.Mesh(new THREE.ConeGeometry(0.28, 0.6, 6), mat);
         icon.add(cone);
@@ -759,7 +766,7 @@
 
     const pickupObjs = new Map();
     for (const pk of MAP.pickups || []) {
-      const style = PICKUP_STYLE[pk.type] || PICKUP_STYLE.ammo;
+      const style = PICKUP_STYLE[pk.type] || PICKUP_STYLE.health;
       const group = new THREE.Group();
       group.position.set(pk.pos[0], pk.pos[1], pk.pos[2]);
       const icon = buildPickupIcon(pk.type);
@@ -1035,7 +1042,7 @@
           teleport(me.p);
         }
         respawnIn = me.rs || 0;
-        buffs = { bd: me.bd || 0, bs: me.bs || 0 };
+        buffs = { bd: me.bd || 0, bs: me.bs || 0, bp: me.bp || 0 };
         speedMul = buffs.bs > 0 ? SPEED_BUFF : 1;
         const nowOkr = !!me.ok;
         if (nowOkr && !inOkr) {
@@ -1083,7 +1090,6 @@
     s.sock("shooter-pickup", ({ id, type, byId, byUid }) => {
       activePickups.delete(id);
       if (!(byUid ? byUid === myUid : byId === s.socket.id)) return;
-      if (type === "ammo") { ammo = MAG_SIZE; reloading = false; }
       const style = PICKUP_STYLE[type];
       hud.toast(style ? style.label : "PICKED UP", style ? "#" + style.color.toString(16).padStart(6, "0") : "#f7c948");
     });
@@ -1109,7 +1115,7 @@
 
     // ------------------------------------------------------- weapon animation
     const GUN_BASE = gun.base;
-    const GUN_ADS = { x: 0, y: -0.105, z: -0.34 };   // centred on the sights
+    const GUN_ADS = { x: 0.27, y: -0.27, z: -0.5 };   // held clear of the centre, never over it
     function updateGun(dt) {
       gun.group.visible = alive && countdown === 0;
       const now = performance.now();
@@ -1259,6 +1265,9 @@
       '<div style="position:absolute;top:8px;left:0;height:2px;width:6px;background:#f7c948;"></div>' +
       '<div style="position:absolute;top:8px;right:0;height:2px;width:6px;background:#f7c948;"></div>';
 
+    const centreDot = el("position:absolute;left:50%;top:50%;width:3px;height:3px;margin:-1.5px 0 0 -1.5px;" +
+      "background:#f7c948;border-radius:50%;opacity:0;transition:opacity 120ms;box-shadow:0 0 4px rgba(0,0,0,0.9);");
+
     const hitMarker = el("position:absolute;left:50%;top:50%;width:22px;height:22px;margin:-11px 0 0 -11px;opacity:0;transition:opacity 120ms;");
     hitMarker.innerHTML =
       '<div style="position:absolute;left:0;top:0;width:22px;height:2px;background:#fff;transform:rotate(45deg);transform-origin:center;"></div>' +
@@ -1308,7 +1317,7 @@
       '<b>WASD</b> move &nbsp;·&nbsp; <b>Space</b> jump &nbsp;·&nbsp; <b>Shift/Ctrl</b> duck<br>' +
       '<b>Right-click</b> aim down sights &nbsp;·&nbsp; <b>Mouse</b> look<br>' +
       '<b>Click</b> fire &nbsp;·&nbsp; <b>R</b> reload &nbsp;·&nbsp; <b>F</b> fullscreen &nbsp;·&nbsp; <b>Esc</b> release cursor<br>' +
-      '<span style="color:#8892a4">Grab the glowing pickups: health, ammo, 2\u00d7 damage, speed</span></div>'
+      '<span style="color:#8892a4">Grab the glowing pickups: health, shield, 2\u00d7 damage, speed</span></div>'
     );
 
     let hitTimer = null;
@@ -1467,16 +1476,22 @@
       },
       update(st) {
         okrTint.style.opacity = st.inOkr ? "1" : "0";
-        const aimScale = (st.inOkr ? 0.55 : 1) * (1 - (st.ads || 0) * 0.75);
+        // The crosshair stays on screen while zoomed and tightens with the zoom,
+        // rather than fading out - you are magnifying the view, not looking down
+        // an occluding sight.
+        const ads = st.ads || 0;
+        const aimScale = (st.inOkr ? 0.55 : 1) * (1 - ads * 0.5);
         crosshair.style.transform = "scale(" + aimScale.toFixed(2) + ")";
-        crosshair.style.opacity = String(1 - (st.ads || 0) * 0.85);
+        crosshair.style.opacity = "1";
         crosshair.style.filter = st.inOkr ? "drop-shadow(0 0 4px #7ee0c0)" : "none";
-        adsVignette.style.opacity = ((st.ads || 0) * 0.55).toFixed(2);
+        centreDot.style.opacity = ads.toFixed(2);          // a precise centre appears as you zoom
+        adsVignette.style.opacity = (ads * 0.28).toFixed(2);
         stanceEl.style.opacity = (st.crouch || 0) > 0.5 ? "1" : "0";
         const chips = [];
         if (st.inOkr) chips.push(["OKR \u00b7 +HEAL \u00b7 +AIM", "#7ee0c0"]);
         if (st.buffs && st.buffs.bd > 0) chips.push(["2\u00d7 DMG " + st.buffs.bd + "s", "#ff7a3d"]);
         if (st.buffs && st.buffs.bs > 0) chips.push(["SPEED " + st.buffs.bs + "s", "#5dade2"]);
+        if (st.buffs && st.buffs.bp > 0) chips.push(["SHIELD " + st.buffs.bp + "s", "#b58cff"]);
         const markup = chips.map(([t, c]) =>
           '<span style="padding:2px 7px;border-radius:4px;background:rgba(0,0,0,0.5);border:1px solid ' + c + ';color:' + c + '">' + t + '</span>'
         ).join("");
