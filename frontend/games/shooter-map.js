@@ -339,12 +339,12 @@
   // Stair run up the west side of the courtyard. Its top step finishes level with
   // the keep roof (both at y=8.6) and their footprints touch, so you walk straight
   // across — no landing slab, which is what used to block the top of the stairs.
-  stairs(KX - 6.05, KZ + 5.5, 8.6, 9, 4.1, "z", -1, C.stone);
+  stairs(KX - 6.05, KZ + 6.1, 8.6, 9, 4.1, "z", -1, C.stone);   // starts AT the south wall
 
   // separate short flight on the east side up to the rampart walk. It reaches the
   // wall face, so the top tread is level with and touching the rampart — no
   // separate step block, and no slot behind the stairs to fall into.
-  stairs(KX + 6.05, KZ + 5.5, 4, 4, 4.1, "z", -1, C.stone);
+  stairs(KX + 6.05, KZ + 6.1, 4, 4, 4.1, "z", -1, C.stone);     // no slot behind the bottom step
 
   // hedges as mid-park cover
   box(-20, 0.75, -12, 10, 1.5, 1.2, C.hedge);
@@ -556,7 +556,8 @@
   rack(-32.5, BZ + 8, 7);
   crooked(-38.5, 0.5, BZ + 2.5, 5, 0.9, 1.6, C.slate, [0, 0.12, 0.06]);      // crushed by the wing
   crooked(-33, 0.45, BZ + 1.5, 4.6, 0.85, 1.5, C.slate, [0, -0.16, -0.05]);
-  box(-30.2, 0.55, BZ + 5, 2.4, 1.1, 3.4, C.slate);                          // counter
+  box(-30.2, 0.55, BZ + 5, 2.0, 1.1, 3.4, C.slate);                          // counter, narrowed to
+                                                                            //   leave 0.85m either side
   const strewn = [C.book1, C.book2, C.book3, C.book4];
   for (let i = 0; i < 18; i++) {
     const a = i * 1.7;
