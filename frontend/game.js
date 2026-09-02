@@ -50,6 +50,7 @@ socket.on("kicked", () => {
 function cleanupAllGames() {
   if (typeof cleanupGame === "function") cleanupGame();           // snake
   if (typeof cleanupHungryClient === "function") cleanupHungryClient();
+  if (typeof cleanupShooterClient === "function") cleanupShooterClient();
 }
 
 function initGame(room) {
@@ -59,6 +60,7 @@ function initGame(room) {
 
   if (room.game === "snake")  initSnakeClient(socket, socket.id, room);
   if (room.game === "hungry") initHungryClient(socket, socket.id, room);
+  if (room.game === "shooter") initShooterClient(socket, socket.id, room);
 }
 
 let roundOverlayTimer = null;

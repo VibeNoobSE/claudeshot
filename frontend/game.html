@@ -42,10 +42,21 @@
     </div>
   </div>
 
+  <!-- Resolves the bare "three" specifier used by the three.js addons. -->
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.185.1/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.185.1/examples/jsm/"
+    }
+  }
+  </script>
   <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
   <script src="config.js"></script>
   <script src="games/snake-client.js"></script>
   <script src="games/hungry-client.js"></script>
+  <script src="games/shooter-map.js"></script>
+  <script src="games/shooter-client.js"></script>
   <script src="game.js"></script>
 </body>
 </html>
