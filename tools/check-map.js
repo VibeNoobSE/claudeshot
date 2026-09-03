@@ -85,7 +85,11 @@ function solidAt(x, y, z) {
 }
 
 function gap(x, y, z, ax, dir, max = 0.8) {
-  for (let d = 0.05; d <= max; d += 0.05) {
+  // Fine steps matter: at 0.05 this over-measured a real 0.60m slot as 0.70 and
+  // the check waved it through. The half-step correction removes the remaining
+  // bias from the probe point not being centred in the gap.
+  const PROBE = 0.02;
+  for (let d = PROBE; d <= max; d += PROBE) {
     const px = x + (ax === 0 ? dir * d : 0);
     const pz = z + (ax === 2 ? dir * d : 0);
     if (solidAt(px, y, pz)) return d;

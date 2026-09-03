@@ -297,7 +297,12 @@
   const WT = 1.8, CRO = WT / 2 - 0.3;
 
   decal(KX, 0.06, KZ, CW, 0.1, CD, C.stone);                        // courtyard
-  box(KX, CWALL / 2, KZ - cwz, CW, CWALL, WT, C.stone);             // north wall
+  // North wall, with a postern gate. Without a way out of the northern half of
+  // the courtyard you could drop in off the ramparts and be stuck: the keep and
+  // both stair flights seal it, and their north faces are sheer.
+  box(KX - 5.5, CWALL / 2, KZ - cwz, 7, CWALL, WT, C.stone);        // north wall,
+  box(KX + 5.5, CWALL / 2, KZ - cwz, 7, CWALL, WT, C.stone);        //   split for a postern
+  box(KX, CWALL - 0.5, KZ - cwz, 4, 1, WT, C.stone);                // lintel over it
   box(KX - 5.5, CWALL / 2, KZ + cwz, 7, CWALL, WT, C.stone);        // south wall,
   box(KX + 5.5, CWALL / 2, KZ + cwz, 7, CWALL, WT, C.stone);        //   split for a gate
   box(KX, CWALL - 0.5, KZ + cwz, 4, 1, WT, C.stone);                // gate arch
@@ -306,7 +311,7 @@
 
   // crenellations, hugging the outer edge so the walkway stays clear
   for (let i = -8; i <= 8; i += 2) {
-    prop(KX + i, CWALL + 0.35, KZ - cwz - CRO, 1, 0.7, 0.6, C.stone);
+    if (Math.abs(i) > 1) prop(KX + i, CWALL + 0.35, KZ - cwz - CRO, 1, 0.7, 0.6, C.stone);
     if (Math.abs(i) > 2) prop(KX + i, CWALL + 0.35, KZ + cwz + CRO, 1, 0.7, 0.6, C.stone);
   }
   for (let i = -6; i <= 6; i += 2) {
@@ -339,12 +344,16 @@
   // Stair run up the west side of the courtyard. Its top step finishes level with
   // the keep roof (both at y=8.6) and their footprints touch, so you walk straight
   // across — no landing slab, which is what used to block the top of the stairs.
-  stairs(KX - 6.05, KZ + 5.5, 8.6, 9, 4.1, "z", -1, C.stone);
+  stairs(KX - 6.05, KZ + 6.1, 8.6, 9, 4.1, "z", -1, C.stone);   // starts AT the south wall
 
+  // A flight out of the NORTHERN courtyard up onto the east rampart. Without it
+  // that half of the castle is sealed: the keep and both stair flights close it
+  // off, and their north faces are 4m and 8.6m of sheer stone. You could drop in
+  // off the walls and never get out.
   // separate short flight on the east side up to the rampart walk. It reaches the
   // wall face, so the top tread is level with and touching the rampart — no
   // separate step block, and no slot behind the stairs to fall into.
-  stairs(KX + 6.05, KZ + 5.5, 4, 4, 4.1, "z", -1, C.stone);
+  stairs(KX + 6.05, KZ + 6.1, 4, 4, 4.1, "z", -1, C.stone);     // no slot behind the bottom step
 
   // hedges as mid-park cover
   box(-20, 0.75, -12, 10, 1.5, 1.2, C.hedge);
@@ -556,7 +565,8 @@
   rack(-32.5, BZ + 8, 7);
   crooked(-38.5, 0.5, BZ + 2.5, 5, 0.9, 1.6, C.slate, [0, 0.12, 0.06]);      // crushed by the wing
   crooked(-33, 0.45, BZ + 1.5, 4.6, 0.85, 1.5, C.slate, [0, -0.16, -0.05]);
-  box(-30.2, 0.55, BZ + 5, 2.4, 1.1, 3.4, C.slate);                          // counter
+  box(-30.2, 0.55, BZ + 5, 2.0, 1.1, 3.4, C.slate);                          // counter, narrowed to
+                                                                            //   leave 0.85m either side
   const strewn = [C.book1, C.book2, C.book3, C.book4];
   for (let i = 0; i < 18; i++) {
     const a = i * 1.7;
@@ -719,13 +729,13 @@
   // =============================================================== pickups
   // type: health | ammo | damage | speed
   const pickups = [
-    { id: "h1", type: "health", pos: [0, 0.6, -20] },        // by the fountain
+    { id: "h1", type: "health", pos: [0, 0.6, -20] },        // by the castle gate
     { id: "h2", type: "health", pos: [0, 0.6, 27] },         // office, behind the pod
-    { id: "a1", type: "ammo",   pos: [-38, 0.6, 4.5] },      // ARK shop floor, between the racks
-    { id: "a2", type: "ammo",   pos: [30, 0.6, 0] },         // east plaza
-    { id: "d1", type: "damage", pos: [0, 9.4, -26] },        // castle keep roof — high risk
-    { id: "a3", type: "ammo",   pos: [0, 6.4, 0] },          // Norli roof
-    { id: "s1", type: "speed",  pos: [3.2, 0.7, 0] },        // shop aisle, between the shelves
+    { id: "s1", type: "speed",  pos: [3.2, 0.7, 0] },        // Norli aisle, between the shelves
+    { id: "s2", type: "speed",  pos: [30, 0.6, 0] },         // east plaza
+    { id: "p1", type: "shield", pos: [-38, 0.6, 4.5] },      // ARK shop floor, under the wreck
+    { id: "p2", type: "shield", pos: [0, 6.4, 0] },          // Norli roof, out in the open
+    { id: "d1", type: "damage", pos: [0, 9.4, -26] },        // castle keep roof - high risk
   ];
 
   return {

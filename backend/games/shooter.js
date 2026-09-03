@@ -27,6 +27,7 @@ const PICKUP_RESPAWN_MS = 20000;
 const BUFF_MS = 12000;
 const DAMAGE_BUFF = 2;
 const HEALTH_PICKUP = 65;
+const SHIELD_FACTOR = 0.5;       // a shield halves incoming damage
 const OKR_REGEN_MS = 700;        // "clear visions": steady regen while in the OKR room
 const OKR_REGEN = 4;
 const TARGET_RESPAWN_MS = 30000;   // a smashed sign is re-hung after 30s
@@ -112,6 +113,7 @@ class ShooterGame {
         respawnAt: 0,
         damageUntil: 0,
         speedUntil: 0,
+        shieldUntil: 0,
         okr: false,
         crouch: 0,
         spawnAcked: false,
@@ -267,8 +269,9 @@ class ShooterGame {
       player.damageUntil = now + BUFF_MS;
     } else if (pk.type === "speed") {
       player.speedUntil = now + BUFF_MS;
+    } else if (pk.type === "shield") {
+      player.shieldUntil = now + BUFF_MS;
     }
-    // "ammo" is purely a client-side magazine refill; the server just gates it.
 
     pk.readyAt = now + PICKUP_RESPAWN_MS;
     this.io.to(this.room.code).emit("shooter-pickup", {
@@ -307,6 +310,7 @@ class ShooterGame {
 
     let damage = data.part === "head" ? HEAD_DAMAGE : BODY_DAMAGE;
     if (now < shooter.damageUntil) damage *= DAMAGE_BUFF;
+    if (now < victim.shieldUntil) damage *= SHIELD_FACTOR;
     victim.hp -= damage;
 
     this.io.to(victim.id).emit("shooter-damaged", { from: shooter.name, hp: Math.max(0, victim.hp) });
@@ -387,6 +391,7 @@ class ShooterGame {
     p.alive = true;
     p.damageUntil = 0;   // buffs die with you
     p.speedUntil = 0;
+    p.shieldUntil = 0;
     this.io.to(p.id).emit("shooter-spawn", { pos: p.pos, hp: MAX_HP });
   }
 
@@ -435,6 +440,7 @@ class ShooterGame {
         rs: p.alive ? 0 : Math.max(0, Math.ceil((p.respawnAt - now) / 1000)),
         bd: Math.max(0, Math.ceil((p.damageUntil - now) / 1000)),
         bs: Math.max(0, Math.ceil((p.speedUntil - now) / 1000)),
+        bp: Math.max(0, Math.ceil((p.shieldUntil - now) / 1000)),
       })),
     });
 
