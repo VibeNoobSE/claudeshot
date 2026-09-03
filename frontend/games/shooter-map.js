@@ -297,7 +297,12 @@
   const WT = 1.8, CRO = WT / 2 - 0.3;
 
   decal(KX, 0.06, KZ, CW, 0.1, CD, C.stone);                        // courtyard
-  box(KX, CWALL / 2, KZ - cwz, CW, CWALL, WT, C.stone);             // north wall
+  // North wall, with a postern gate. Without a way out of the northern half of
+  // the courtyard you could drop in off the ramparts and be stuck: the keep and
+  // both stair flights seal it, and their north faces are sheer.
+  box(KX - 5.5, CWALL / 2, KZ - cwz, 7, CWALL, WT, C.stone);        // north wall,
+  box(KX + 5.5, CWALL / 2, KZ - cwz, 7, CWALL, WT, C.stone);        //   split for a postern
+  box(KX, CWALL - 0.5, KZ - cwz, 4, 1, WT, C.stone);                // lintel over it
   box(KX - 5.5, CWALL / 2, KZ + cwz, 7, CWALL, WT, C.stone);        // south wall,
   box(KX + 5.5, CWALL / 2, KZ + cwz, 7, CWALL, WT, C.stone);        //   split for a gate
   box(KX, CWALL - 0.5, KZ + cwz, 4, 1, WT, C.stone);                // gate arch
@@ -306,7 +311,7 @@
 
   // crenellations, hugging the outer edge so the walkway stays clear
   for (let i = -8; i <= 8; i += 2) {
-    prop(KX + i, CWALL + 0.35, KZ - cwz - CRO, 1, 0.7, 0.6, C.stone);
+    if (Math.abs(i) > 1) prop(KX + i, CWALL + 0.35, KZ - cwz - CRO, 1, 0.7, 0.6, C.stone);
     if (Math.abs(i) > 2) prop(KX + i, CWALL + 0.35, KZ + cwz + CRO, 1, 0.7, 0.6, C.stone);
   }
   for (let i = -6; i <= 6; i += 2) {
@@ -341,6 +346,10 @@
   // across — no landing slab, which is what used to block the top of the stairs.
   stairs(KX - 6.05, KZ + 6.1, 8.6, 9, 4.1, "z", -1, C.stone);   // starts AT the south wall
 
+  // A flight out of the NORTHERN courtyard up onto the east rampart. Without it
+  // that half of the castle is sealed: the keep and both stair flights close it
+  // off, and their north faces are 4m and 8.6m of sheer stone. You could drop in
+  // off the walls and never get out.
   // separate short flight on the east side up to the rampart walk. It reaches the
   // wall face, so the top tread is level with and touching the rampart — no
   // separate step block, and no slot behind the stairs to fall into.
