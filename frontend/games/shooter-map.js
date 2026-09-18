@@ -741,6 +741,7 @@
   return {
     name: "Norli Plaza",
     half: HALF,
+    bound: HALF - FACADE_D,     // inner face of the city block: nothing is playable past it
     wallHeight: WALL_H,
     skyColor: C.sky,
     colors: C,

@@ -214,8 +214,9 @@
     s.on(document, "fullscreenchange", () => setTimeout(resize, 60));
 
     // outdoor daylight: warm sun, cool sky bounce
-    scene.add(new THREE.HemisphereLight(0xdcefff, 0x6a7a5e, 1.0));
-    scene.add(new THREE.AmbientLight(0xffffff, 0.25));
+    const hemi = new THREE.HemisphereLight(0xdcefff, 0x6a7a5e, 1.0);
+    const ambient = new THREE.AmbientLight(0xffffff, 0.25);
+    scene.add(hemi, ambient);
     const sun = new THREE.DirectionalLight(0xfff2d8, 1.45);
     sun.position.set(38, 60, 22);
     scene.add(sun);
@@ -303,6 +304,17 @@
     let countdown = 0;
     let buffs = { bd: 0, bs: 0, bp: 0 };
     let speedMul = 1;
+    // mode and killstreak state
+    let mode = null;
+    let gravity = GRAVITY;
+    let jumpSpeed = JUMP_SPEED;
+    let modeSpeed = 1;
+    let hideTags = false;
+    let headScale = 1;
+    let muzzleBoost = 1;
+    let streak = 0;
+    let uavLeft = 0;
+    let airstrikesLeft = 0;
     let gunPhase = 0;
     let recoil = 0;
     // Aim is held separately from camera.rotation so screen shake can be layered
@@ -383,7 +395,7 @@
       if (keys.KeyS || keys.ArrowDown) velocity.add(forwardVector().multiplyScalar(-accel));
       if (keys.KeyA || keys.ArrowLeft) velocity.add(sideVector().multiplyScalar(-accel));
       if (keys.KeyD || keys.ArrowRight) velocity.add(sideVector().multiplyScalar(accel));
-      if (onFloor && keys.Space && crouch < 0.5) velocity.y = JUMP_SPEED;   // no jumping while ducked
+      if (onFloor && keys.Space && crouch < 0.5) velocity.y = jumpSpeed;    // no jumping while ducked
     }
 
     function collide() {
@@ -399,13 +411,26 @@
     function stepPlayer(dt) {
       let damping = Math.exp(-4 * dt) - 1;
       if (!onFloor) {
-        velocity.y -= GRAVITY * dt;
+        velocity.y -= gravity * dt;
         damping *= 0.12;
       }
       velocity.addScaledVector(velocity, damping);
       stepMove.copy(velocity).multiplyScalar(dt);
       collider.translate(stepMove);
       collide();
+      // Invisible wall at the inner face of the city block. The fronts are solid,
+      // but from a rooftop - or floating in low gravity - you could get on top of
+      // them and walk off the edge of the world.
+      const LIMIT = (MAP.bound || MAP.half) - PLAYER_RADIUS - 0.02;
+      for (const ax of ["x", "z"]) {
+        const v = collider.start[ax];
+        if (v > LIMIT || v < -LIMIT) {
+          const push = Math.max(-LIMIT, Math.min(LIMIT, v)) - v;
+          collider.start[ax] += push;
+          collider.end[ax] += push;
+          velocity[ax] = 0;
+        }
+      }
       camera.position.copy(collider.end);
       // safety net: if anything ever punts us out of the arena, drop back in
       if (Math.abs(camera.position.x) > MAP.half + 5 || Math.abs(camera.position.z) > MAP.half + 5 || camera.position.y < -10) {
@@ -463,6 +488,7 @@
       body.position.y = 0.6;
       body.userData = { uid: p.uid, part: "body" };
       const head = new THREE.Mesh(new THREE.BoxGeometry(0.58, 0.58, 0.58), mat);
+      if (mode && mode.id === "night") { mat.emissive = new THREE.Color(p.color); mat.emissiveIntensity = 0.22; }
       head.position.y = 1.36;
       head.userData = { uid: p.uid, part: "head" };
       const visor = new THREE.Mesh(
@@ -489,8 +515,11 @@
       fill.scale.set(1.26, 0.11, 1);
       scene.add(bg, fill);
 
+      if (headScale !== 1) sizeHead(head);
       return {
         group,
+        head,
+        mat,
         label,
         meshes: [body, head],
         bar: { bg, fill, w: 1.26 },
@@ -527,8 +556,8 @@
         // health bar, offset along the camera's right so it drains screen-left
         const bar = a.bar;
         const visibleToMe = p.alive && hasLineOfSight(a.group.position);
-        a.label.visible = visibleToMe;
-        bar.bg.visible = bar.fill.visible = visibleToMe;
+        a.label.visible = visibleToMe && !hideTags;          // HARDCORE hides tags
+        bar.bg.visible = bar.fill.visible = visibleToMe && !hideTags;
         if (visibleToMe) {
           const frac = Math.max(0, Math.min(1, p.hp / maxHp));
           const bx = a.group.position.x;
@@ -903,7 +932,7 @@
       shotParity = -shotParity;
       flashUntil = performance.now() + 55;
       muzzleLight.position.copy(muzzle);
-      muzzleLight.intensity = 5;
+      muzzleLight.intensity = 5 * muzzleBoost;
       const limit = Math.PI / 2 * 0.95;
       aimPitch = Math.min(limit, aimPitch + 0.0025 * steady);   // a touch of muzzle climb
 
@@ -945,12 +974,209 @@
       }
     }
 
+    // ---------------------------------------------------------------- minimap
+    // CoD-style radar: it turns with you and you are the arrow in the middle.
+    // Walls are always drawn; enemies only appear while your UAV is up.
+    const RADAR_RANGE = 34;                                   // metres, centre to rim
+    const radarWalls = MAP.boxes
+      .filter((b) => (b.collide !== undefined ? b.collide : b.solid !== false) && !b.rot &&
+                     b.size[1] >= 1.2 && b.size[0] * b.size[2] >= 0.6 &&
+                     b.pos[1] - b.size[1] / 2 < 6)
+      .map((b) => [b.pos[0], b.pos[2], b.size[0], b.size[2]]);
+    let radarFrame = 0;
+
+    function drawMinimap() {
+      if ((radarFrame++ & 1) === 1) return;                   // every other frame is plenty
+      const cv = hud.minimap;
+      const ctx = cv.getContext("2d");
+      const W = cv.width, R = W / 2, k = R / RADAR_RANGE;
+      const px = collider.start.x, pz = collider.start.z;
+
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.clearRect(0, 0, W, W);
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(R, R, R - 1, 0, Math.PI * 2);
+      ctx.clip();
+      ctx.fillStyle = "rgba(8,12,24,0.78)";
+      ctx.fillRect(0, 0, W, W);
+
+      // world -> radar: centre on you, then turn so your facing points up
+      ctx.translate(R, R);
+      ctx.rotate(aimYaw);
+      ctx.scale(k, k);
+      ctx.translate(-px, -pz);
+      ctx.fillStyle = "rgba(170,180,200,0.42)";
+      for (const [x, z, w, d] of radarWalls) {
+        if (Math.abs(x - px) > RADAR_RANGE + 14 || Math.abs(z - pz) > RADAR_RANGE + 14) continue;
+        ctx.fillRect(x - w / 2, z - d / 2, w, d);
+      }
+      if (uavLeft > 0) {
+        ctx.fillStyle = "#e94560";
+        for (const p of snapshotPlayers) {
+          if (isMe(p) || !p.alive) continue;
+          ctx.beginPath();
+          ctx.arc(p.p[0], p.p[2], 1.3, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+      ctx.restore();
+
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.fillStyle = "#f7c948";                              // you
+      ctx.beginPath();
+      ctx.moveTo(R, R - 7); ctx.lineTo(R + 5, R + 5); ctx.lineTo(R, R + 2); ctx.lineTo(R - 5, R + 5);
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = uavLeft > 0 ? "rgba(78,204,163,0.95)" : "rgba(255,255,255,0.22)";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(R, R, R - 1, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+
+    // ----------------------------------------------------------------- modes
+    function sizeHead(head) {
+      head.scale.setScalar(headScale);
+      head.position.y = 1.36 + 0.29 * (headScale - 1);   // grow upward from the neck
+    }
+
+    function applyMode(m) {
+      mode = m;
+      gravity = GRAVITY;
+      jumpSpeed = JUMP_SPEED;
+      modeSpeed = 1;
+      hideTags = false;
+      headScale = 1;
+      if (m.id === "lowgrav") { gravity = 13; jumpSpeed = 8.6; }     // ~2.8m jumps, slow fall
+      if (m.id === "speed") modeSpeed = 1.6;
+      if (m.id === "hardcore") hideTags = true;
+      if (m.id === "bigheads") headScale = 2.2;
+      if (m.id === "night") goDark();
+      for (const [, a] of avatars) {
+        sizeHead(a.head);
+        if (m.id === "night") { a.mat.emissive = new THREE.Color(a.mat.color); a.mat.emissiveIntensity = 0.22; }
+      }
+      hud.modeIntro(m);
+    }
+
+    function goDark() {
+      const night = "#070b16";
+      scene.background = new THREE.Color(night);
+      scene.fog.color.set(night);
+      scene.fog.near = 16;
+      scene.fog.far = 72;
+      wrap.style.background = night;
+      hemi.intensity = 0.2;
+      ambient.intensity = 0.07;
+      sun.intensity = 0.24;
+      sun.color.set("#9db4ff");                // moonlight
+      bounce.intensity = 0.04;
+      muzzleBoost = 2.4;                       // a shot lights up the street
+    }
+
+    // ------------------------------------------------------------ airstrikes
+    function callAirstrike() {
+      if (!alive || matchOver || countdown > 0 || airstrikesLeft < 1) return;
+      camera.getWorldDirection(aimDir);
+      raycaster.set(camera.position, aimDir);
+      raycaster.far = 160;
+      const hits = raycaster.intersectObjects(shotMeshes, false);
+      raycaster.far = RANGE;
+      if (!hits.length) { hud.toast("AIM AT THE GROUND TO CALL IT IN", "#e94560"); return; }
+      const pt = hits[0].point;
+      s.socket.emit("shooter-input", { t: "airstrike", target: [pt.x, pt.y, pt.z] });
+    }
+
+    const booms = [];            // animated explosions and warning markers
+    const markerGeo = new THREE.RingGeometry(2.2, 2.7, 32);
+    const markerMat = new THREE.MeshBasicMaterial({ color: 0xe94560, transparent: true, opacity: 0.8, side: THREE.DoubleSide });
+
+    function warnAt(pt, lifeMs) {
+      const ring = new THREE.Mesh(markerGeo, markerMat.clone());
+      ring.rotation.x = -Math.PI / 2;
+      ring.position.set(pt[0], 0.25, pt[2]);
+      scene.add(ring);
+      booms.push({ kind: "marker", obj: ring, born: performance.now(), life: lifeMs });
+    }
+
+    function explodeAt(pt, radius) {
+      const now = performance.now();
+      const fire = new THREE.Mesh(
+        new THREE.SphereGeometry(1, 16, 12),
+        new THREE.MeshBasicMaterial({ color: 0xff8a3d, transparent: true, opacity: 0.95 })
+      );
+      fire.position.set(pt[0], 1, pt[2]);
+      scene.add(fire);
+      booms.push({ kind: "fire", obj: fire, born: now, life: 700, radius });
+
+      const smoke = new THREE.Mesh(
+        new THREE.SphereGeometry(1, 12, 10),
+        new THREE.MeshBasicMaterial({ color: 0x2a2724, transparent: true, opacity: 0.55, depthWrite: false })
+      );
+      smoke.position.set(pt[0], 1.5, pt[2]);
+      scene.add(smoke);
+      booms.push({ kind: "smoke", obj: smoke, born: now, life: 2600, radius });
+
+      const scorch = new THREE.Mesh(
+        new THREE.CircleGeometry(radius * 0.55, 20),
+        new THREE.MeshBasicMaterial({ color: 0x14110f, transparent: true, opacity: 0.7, depthWrite: false })
+      );
+      scorch.rotation.x = -Math.PI / 2;
+      scorch.position.set(pt[0], 0.21 + Math.random() * 0.01, pt[2]);  // never coplanar with another
+      scene.add(scorch);
+      booms.push({ kind: "scorch", obj: scorch, born: now, life: 12000 });
+
+      const flash = new THREE.PointLight(0xffa04a, 6, radius * 5, 2);
+      flash.position.set(pt[0], 2.5, pt[2]);
+      scene.add(flash);
+      booms.push({ kind: "flash", obj: flash, born: now, life: 450 });
+
+      // shake the camera if it went off near you
+      const d = camera.position.distanceTo(new THREE.Vector3(pt[0], camera.position.y, pt[2]));
+      if (d < 22) {
+        const k = 1 - d / 22;
+        recoilVelP += 2.6 * k;
+        recoilVelY += (Math.random() - 0.5) * 3 * k;
+      }
+    }
+
+    function updateBooms() {
+      const now = performance.now();
+      for (let i = booms.length - 1; i >= 0; i--) {
+        const b = booms[i];
+        const t = (now - b.born) / b.life;
+        if (t >= 1) {
+          scene.remove(b.obj);
+          if (b.obj.geometry && b.kind !== "marker") b.obj.geometry.dispose();
+          if (b.obj.material) b.obj.material.dispose();
+          booms.splice(i, 1);
+          continue;
+        }
+        if (b.kind === "fire") {
+          b.obj.scale.setScalar(0.5 + t * b.radius * 1.1);
+          b.obj.material.opacity = 0.95 * (1 - t);
+        } else if (b.kind === "smoke") {
+          b.obj.scale.setScalar(1 + t * b.radius * 0.9);
+          b.obj.position.y = 1.5 + t * 4;
+          b.obj.material.opacity = 0.55 * (1 - t);
+        } else if (b.kind === "flash") {
+          b.obj.intensity = 6 * (1 - t);
+        } else if (b.kind === "marker") {
+          b.obj.material.opacity = 0.35 + 0.45 * Math.abs(Math.sin(now / 90));   // urgent blink
+        } else if (b.kind === "scorch") {
+          b.obj.material.opacity = 0.7 * (1 - Math.max(0, t - 0.7) / 0.3);
+        }
+      }
+    }
+
     // ----------------------------------------------------------------- input
     s.on(document, "keydown", (e) => {
       keys[e.code] = true;
       if (e.code === "ShiftLeft" || e.code === "ShiftRight" ||
           e.code === "ControlLeft" || e.code === "ControlRight") wantCrouch = true;
       if (e.code === "KeyR") reload();
+      if (e.code === "Digit4") callAirstrike();
       if (e.code === "KeyU" && alive && !matchOver) {      // manual escape hatch
         teleport(nearestSpawn(camera.position));
         stuckFor = 0;
@@ -1001,16 +1227,36 @@
     s.sock("shooter-init", (data) => {
       hud.setMap(data.map);
       if (data.maxHp) maxHp = data.maxHp;
+      if (data.mode && (!mode || mode.id !== data.mode.id)) applyMode(data.mode);
     });
+
+    s.sock("shooter-streak", ({ type, by, byUid }) => {
+      const mine = byUid === myUid;
+      if (type === "uav") {
+        if (mine) hud.announce("UAV ONLINE", "Every enemy is on your radar for 20s", "#4ecca3");
+        else hud.announce("ENEMY UAV SPOTTED", by + " can see you on radar", "#e94560");
+      } else if (type === "airstrike-ready") {
+        if (mine) hud.announce("AIRSTRIKE READY", "Press 4 to call it in on your crosshair", "#f7c948");
+        else hud.feedLine(by + " has an airstrike", "#f7c948");
+      }
+    });
+
+    s.sock("shooter-airstrike", ({ by, byUid, points, warningMs, gapMs }) => {
+      points.forEach((pt, k) => warnAt(pt, warningMs + k * gapMs + 150));
+      if (byUid === myUid) hud.announce("AIRSTRIKE INBOUND", "Bombs away in " + Math.round(warningMs / 1000) + "s", "#f7c948");
+      else hud.announce("AIRSTRIKE INCOMING", by + " called one in \u2014 get under a roof", "#e94560");
+    });
+
+    s.sock("shooter-boom", ({ pos, radius }) => explodeAt(pos, radius || 5.5));
 
     s.sock("shooter-you", ({ uid }) => { myUid = uid; });
 
-    s.sock("shooter-over", ({ table, endsIn }) => {
+    s.sock("shooter-over", ({ table, endsIn, mode: modeName }) => {
       matchOver = true;
       firing = false;
       aiming = false;
       if (document.pointerLockElement) document.exitPointerLock();
-      hud.endScreen(table, myUid, endsIn);
+      hud.endScreen(table, myUid, endsIn, modeName);
     });
 
     s.sock("shooter-spawn", ({ pos, hp: newHp }) => {
@@ -1050,7 +1296,10 @@
         }
         respawnIn = me.rs || 0;
         buffs = { bd: me.bd || 0, bs: me.bs || 0, bp: me.bp || 0 };
-        speedMul = buffs.bs > 0 ? SPEED_BUFF : 1;
+        speedMul = (buffs.bs > 0 ? SPEED_BUFF : 1) * modeSpeed;
+        streak = me.sk || 0;
+        uavLeft = me.ua || 0;
+        airstrikesLeft = me.as || 0;
         const nowOkr = !!me.ok;
         if (nowOkr && !inOkr) {
           okrPulse = 1;
@@ -1101,8 +1350,8 @@
       hud.toast(style ? style.label : "PICKED UP", style ? "#" + style.color.toString(16).padStart(6, "0") : "#f7c948");
     });
 
-    s.sock("shooter-kill", ({ killer, victim, victimId, victimUid, headshot }) => {
-      hud.addFeed(killer, victim, headshot);
+    s.sock("shooter-kill", ({ killer, victim, victimId, victimUid, headshot, weapon }) => {
+      hud.addFeed(killer, victim, headshot, weapon);
       const wasMe = victimUid ? victimUid === myUid : victimId === s.socket.id;
       if (wasMe) deathMessage = "Fragged by " + killer;
     });
@@ -1232,12 +1481,15 @@
       updateSmoke(dt);
       if (firing) fire();
       updateEffects();
+      updateBooms();
+      drawMinimap();
       updateGun(dt);
       renderer.clear();
       renderer.render(scene, camera);
       renderer.clearDepth();           // weapon pass — never clips into geometry
       renderer.render(viewScene, viewCamera);
-      hud.update({ hp, maxHp, ammo, reloading, countdown, timeLeft, alive, locked, deathMessage, buffs, inOkr, respawnIn, ads, crouch });
+      hud.update({ hp, maxHp, ammo, reloading, countdown, timeLeft, alive, locked, deathMessage, buffs, inOkr, respawnIn, ads, crouch,
+                   streak, uavLeft, airstrikesLeft });
     }
     animate();
   }
@@ -1318,7 +1570,23 @@
     const healEl = el("position:absolute;bottom:72px;left:14px;font-size:0.95rem;font-weight:900;color:#4ecca3;opacity:0;transition:opacity 200ms,transform 500ms;text-shadow:0 2px 6px rgba(0,0,0,0.9);");
     const timer = el("position:absolute;top:10px;left:50%;transform:translateX(-50%);font-weight:900;font-size:1.3rem;letter-spacing:1px;text-shadow:0 2px 6px rgba(0,0,0,0.8);");
     const board = el("position:absolute;top:10px;right:12px;font-size:0.8rem;font-weight:700;text-align:right;text-shadow:0 2px 6px rgba(0,0,0,0.8);line-height:1.5;");
-    const feed = el("position:absolute;top:10px;left:12px;font-size:0.78rem;font-weight:700;text-shadow:0 2px 6px rgba(0,0,0,0.8);line-height:1.6;");
+    // radar sits where CoD puts it, top left; the kill feed moves beneath it
+    const minimap = document.createElement("canvas");
+    minimap.width = 150;
+    minimap.height = 150;
+    minimap.style.cssText = "position:absolute;top:10px;left:12px;width:150px;height:150px;";
+    layer.appendChild(minimap);
+
+    const modeChip = el("position:absolute;top:40px;left:50%;transform:translateX(-50%);font-size:0.68rem;" +
+      "font-weight:900;letter-spacing:3px;color:#f7c948;text-shadow:0 2px 6px rgba(0,0,0,0.9);");
+    const modeIntroEl = el("position:absolute;top:24%;left:50%;transform:translateX(-50%) scale(0.85);opacity:0;" +
+      "transition:opacity 300ms,transform 300ms;text-align:center;white-space:nowrap;");
+    const announceEl = el("position:absolute;top:18%;left:50%;transform:translateX(-50%) scale(0.8);opacity:0;" +
+      "transition:opacity 220ms,transform 220ms;text-align:center;white-space:nowrap;");
+    const streakEl = el("position:absolute;bottom:52px;right:14px;text-align:right;font-size:0.72rem;" +
+      "font-weight:900;letter-spacing:2px;text-shadow:0 2px 6px rgba(0,0,0,0.9);");
+
+    const feed = el("position:absolute;top:172px;left:12px;font-size:0.78rem;font-weight:700;text-shadow:0 2px 6px rgba(0,0,0,0.8);line-height:1.6;");
     const mapName = el("position:absolute;bottom:10px;left:50%;transform:translateX(-50%);font-size:0.7rem;color:#8892a4;letter-spacing:2px;text-transform:uppercase;");
 
     const healthWrap = el("position:absolute;bottom:12px;left:14px;width:190px;");
@@ -1358,7 +1626,7 @@
       '<div style="font-size:0.85rem;color:#c9d2e3;line-height:1.8;">' +
       '<b>WASD</b> move &nbsp;·&nbsp; <b>Space</b> jump &nbsp;·&nbsp; <b>Shift/Ctrl</b> duck<br>' +
       '<b>Right-click</b> aim down sights &nbsp;·&nbsp; <b>Mouse</b> look<br>' +
-      '<b>U</b> unstick if you are ever trapped<br>' +
+      '<b>4</b> call in an airstrike (5-kill streak) &nbsp;·&nbsp; <b>U</b> unstick<br>' +
       '<b>Click</b> fire &nbsp;·&nbsp; <b>R</b> reload &nbsp;·&nbsp; <b>F</b> fullscreen &nbsp;·&nbsp; <b>Esc</b> release cursor<br>' +
       '<span style="color:#8892a4">Grab the glowing pickups: health, shield, 2\u00d7 damage, speed</span></div>'
     );
@@ -1367,6 +1635,8 @@
     let dmgTimer = null;
     let toastTimer = null;
     let okrTimer = null;
+    let introTimer = null;
+    let announceTimer = null;
     let healTimer = null;
     let endTimer = null;
     const feedItems = [];
@@ -1374,10 +1644,48 @@
 
     return {
       layer,
+      minimap,
       lockOverlay,
+      modeIntro(m) {
+        modeChip.textContent = m.name;
+        modeIntroEl.innerHTML =
+          '<div style="font-size:0.75rem;letter-spacing:6px;color:#8892a4;font-weight:800">THIS ROUND</div>' +
+          '<div style="margin:0.2rem 0;font-size:2.4rem;font-weight:900;letter-spacing:4px;color:#f7c948;' +
+            'text-shadow:0 0 22px rgba(247,201,72,0.45),0 3px 12px rgba(0,0,0,0.9)">' + esc(m.name) + '</div>' +
+          '<div style="font-size:1rem;font-weight:800;color:#e8ecf3;text-shadow:0 2px 8px rgba(0,0,0,0.9)">' +
+            esc(m.blurb) + '</div>';
+        modeIntroEl.style.opacity = "1";
+        modeIntroEl.style.transform = "translateX(-50%) scale(1)";
+        clearTimeout(introTimer);
+        introTimer = setTimeout(() => {
+          modeIntroEl.style.opacity = "0";
+          modeIntroEl.style.transform = "translateX(-50%) scale(0.85)";
+        }, 5200);
+      },
+      announce(title, sub, color) {
+        announceEl.innerHTML =
+          '<div style="font-size:1.6rem;font-weight:900;letter-spacing:3px;color:' + color + ';' +
+            'text-shadow:0 0 16px ' + color + '66,0 3px 10px rgba(0,0,0,0.9)">' + esc(title) + '</div>' +
+          (sub ? '<div style="margin-top:0.2rem;font-size:0.9rem;font-weight:800;color:#e8ecf3;' +
+            'text-shadow:0 2px 8px rgba(0,0,0,0.9)">' + esc(sub) + '</div>' : "");
+        announceEl.style.opacity = "1";
+        announceEl.style.transform = "translateX(-50%) scale(1)";
+        clearTimeout(announceTimer);
+        announceTimer = setTimeout(() => {
+          announceEl.style.opacity = "0";
+          announceEl.style.transform = "translateX(-50%) scale(0.8)";
+        }, 2600);
+      },
+      feedLine(text, color) {
+        feedItems.unshift('<span style="color:' + (color || "#c9d2e3") + '">' + esc(text) + '</span>');
+        if (feedItems.length > 5) feedItems.pop();
+        feed.innerHTML = feedItems.join("<br>");
+      },
       stopTimers() {
         clearInterval(endTimer);
         clearTimeout(okrTimer);
+        clearTimeout(introTimer);
+        clearTimeout(announceTimer);
         clearTimeout(healTimer);
         clearTimeout(toastTimer);
         clearTimeout(hitTimer);
@@ -1401,7 +1709,7 @@
           healEl.style.transform = "translateY(0)";
         }, 500);
       },
-      endScreen(table, myUid, endsIn) {
+      endScreen(table, myUid, endsIn, modeName) {
         const rows = (table || []).map((p, i) => {
           const me = myUid && p.uid === myUid;
           const kd = (p.deaths ? p.kills / p.deaths : p.kills).toFixed(2);
@@ -1419,7 +1727,8 @@
         const winner = table && table[0] ? table[0].name : "";
         endBoard.innerHTML =
           '<div style="text-align:center;max-width:92%;">' +
-          '<div style="font-size:0.8rem;letter-spacing:5px;color:#8892a4;font-weight:800">MATCH OVER</div>' +
+          '<div style="font-size:0.8rem;letter-spacing:5px;color:#8892a4;font-weight:800">MATCH OVER' +
+            (modeName ? ' \u00b7 ' + esc(modeName) : '') + '</div>' +
           '<div style="margin:0.35rem 0 1rem;font-size:1.7rem;font-weight:900;color:#f7c948;' +
             'text-shadow:0 0 18px rgba(247,201,72,0.35)">' + esc(winner) + ' wins</div>' +
           '<table style="margin:0 auto;border-collapse:collapse;font-size:0.95rem">' +
@@ -1495,10 +1804,12 @@
         if (feedItems.length > 5) feedItems.pop();
         feed.innerHTML = feedItems.join("<br>");
       },
-      addFeed(killer, victim, headshot) {
+      addFeed(killer, victim, headshot, weapon) {
+        const icon = weapon === "airstrike" ? '<span style="color:#ff8a3d">\u2708</span>'
+          : headshot ? '<span style="color:#f7c948">✷</span>' : '→';
         feedItems.unshift(
           '<span style="color:#4ecca3">' + esc(killer) + '</span> ' +
-          (headshot ? '<span style="color:#f7c948">✷</span>' : '→') +
+          icon +
           ' <span style="color:#e94560">' + esc(victim) + '</span>'
         );
         if (feedItems.length > 5) feedItems.pop();
@@ -1518,6 +1829,18 @@
             .join("");
       },
       update(st) {
+        // killstreak panel: what you have, and what the next kill earns
+        const s = st.streak || 0;
+        let next = "";
+        if (s < 3) next = "UAV IN " + (3 - s);
+        else if (s < 5) next = "AIRSTRIKE IN " + (5 - s);
+        const lines = [];
+        if (st.uavLeft > 0) lines.push('<span style="color:#4ecca3">UAV ' + st.uavLeft + 's</span>');
+        if (st.airstrikesLeft > 0) lines.push('<span style="color:#f7c948">\u2708 AIRSTRIKE READY [4]</span>');
+        lines.push('<span style="color:#8892a4">STREAK ' + s + (next ? " \u00b7 " + next : "") + '</span>');
+        const html = lines.join("<br>");
+        if (streakEl.innerHTML !== html) streakEl.innerHTML = html;
+
         okrTint.style.opacity = st.inOkr ? "1" : "0";
         // The crosshair stays on screen while zoomed and tightens with the zoom,
         // rather than fading out - you are magnifying the view, not looking down
