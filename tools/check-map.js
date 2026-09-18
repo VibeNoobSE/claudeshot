@@ -6,7 +6,9 @@
 //
 //   node tools/check-map.js
 
-const MAP = require("../frontend/games/shooter-map.js");
+// MAP_SEED=1234 checks that generated world; unset checks the classic map.
+const BASE_MAP = require("../frontend/games/shooter-map.js");
+const MAP = process.env.MAP_SEED !== undefined ? BASE_MAP.forSeed(Number(process.env.MAP_SEED)) : BASE_MAP;
 
 const R = 0.32;      // player radius
 const HEAD = 1.3;    // player height above the surface they stand on

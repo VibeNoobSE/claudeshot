@@ -233,7 +233,7 @@
     const collideGroup = new THREE.Group();
     const shotMeshes = [];
     const edgeMat = new THREE.LineBasicMaterial({ color: 0x1b2233, transparent: true, opacity: 0.35 });
-    for (const b of MAP.boxes) {
+    function addBox(b) {
       const geo = new THREE.BoxGeometry(b.size[0], b.size[1], b.size[2]);
       const matOpts = { color: b.color };
       if (b.opacity !== undefined) { matOpts.transparent = true; matOpts.opacity = b.opacity; }
@@ -252,9 +252,10 @@
         scene.add(edges);
       }
     }
+    for (const b of MAP.boxes) addBox(b);
     scene.add(collideGroup);
 
-    const octree = new Octree().fromGraphNode(collideGroup);
+    let octree = new Octree().fromGraphNode(collideGroup);
 
     // shop / room signage, drawn as canvas textures
     for (const sg of MAP.signs || []) {
@@ -304,17 +305,14 @@
     let countdown = 0;
     let buffs = { bd: 0, bs: 0, bp: 0 };
     let speedMul = 1;
-    // mode and killstreak state
+    // mode state
     let mode = null;
     let gravity = GRAVITY;
     let jumpSpeed = JUMP_SPEED;
     let modeSpeed = 1;
     let hideTags = false;
     let headScale = 1;
-    let muzzleBoost = 1;
-    let streak = 0;
-    let uavLeft = 0;
-    let airstrikesLeft = 0;
+    let worldSeed = null;
     let gunPhase = 0;
     let recoil = 0;
     // Aim is held separately from camera.rotation so screen shake can be layered
@@ -488,7 +486,6 @@
       body.position.y = 0.6;
       body.userData = { uid: p.uid, part: "body" };
       const head = new THREE.Mesh(new THREE.BoxGeometry(0.58, 0.58, 0.58), mat);
-      if (mode && mode.id === "night") { mat.emissive = new THREE.Color(p.color); mat.emissiveIntensity = 0.22; }
       head.position.y = 1.36;
       head.userData = { uid: p.uid, part: "head" };
       const visor = new THREE.Mesh(
@@ -932,7 +929,7 @@
       shotParity = -shotParity;
       flashUntil = performance.now() + 55;
       muzzleLight.position.copy(muzzle);
-      muzzleLight.intensity = 5 * muzzleBoost;
+      muzzleLight.intensity = 5;
       const limit = Math.PI / 2 * 0.95;
       aimPitch = Math.min(limit, aimPitch + 0.0025 * steady);   // a touch of muzzle climb
 
@@ -976,13 +973,14 @@
 
     // ---------------------------------------------------------------- minimap
     // CoD-style radar: it turns with you and you are the arrow in the middle.
-    // Walls are always drawn; enemies only appear while your UAV is up.
+    // It draws the walls, including the cover of a generated world.
     const RADAR_RANGE = 34;                                   // metres, centre to rim
-    const radarWalls = MAP.boxes
+    const toRadar = (list) => list
       .filter((b) => (b.collide !== undefined ? b.collide : b.solid !== false) && !b.rot &&
                      b.size[1] >= 1.2 && b.size[0] * b.size[2] >= 0.6 &&
                      b.pos[1] - b.size[1] / 2 < 6)
       .map((b) => [b.pos[0], b.pos[2], b.size[0], b.size[2]]);
+    const radarWalls = toRadar(MAP.boxes);
     let radarFrame = 0;
 
     function drawMinimap() {
@@ -1011,15 +1009,6 @@
         if (Math.abs(x - px) > RADAR_RANGE + 14 || Math.abs(z - pz) > RADAR_RANGE + 14) continue;
         ctx.fillRect(x - w / 2, z - d / 2, w, d);
       }
-      if (uavLeft > 0) {
-        ctx.fillStyle = "#e94560";
-        for (const p of snapshotPlayers) {
-          if (isMe(p) || !p.alive) continue;
-          ctx.beginPath();
-          ctx.arc(p.p[0], p.p[2], 1.3, 0, Math.PI * 2);
-          ctx.fill();
-        }
-      }
       ctx.restore();
 
       ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -1028,7 +1017,7 @@
       ctx.moveTo(R, R - 7); ctx.lineTo(R + 5, R + 5); ctx.lineTo(R, R + 2); ctx.lineTo(R - 5, R + 5);
       ctx.closePath();
       ctx.fill();
-      ctx.strokeStyle = uavLeft > 0 ? "rgba(78,204,163,0.95)" : "rgba(255,255,255,0.22)";
+      ctx.strokeStyle = "rgba(255,255,255,0.22)";
       ctx.lineWidth = 2;
       ctx.beginPath();
       ctx.arc(R, R, R - 1, 0, Math.PI * 2);
@@ -1052,122 +1041,21 @@
       if (m.id === "speed") modeSpeed = 1.6;
       if (m.id === "hardcore") hideTags = true;
       if (m.id === "bigheads") headScale = 2.2;
-      if (m.id === "night") goDark();
-      for (const [, a] of avatars) {
-        sizeHead(a.head);
-        if (m.id === "night") { a.mat.emissive = new THREE.Color(a.mat.color); a.mat.emissiveIntensity = 0.22; }
-      }
+      for (const [, a] of avatars) sizeHead(a.head);
       hud.modeIntro(m);
     }
 
-    function goDark() {
-      const night = "#070b16";
-      scene.background = new THREE.Color(night);
-      scene.fog.color.set(night);
-      scene.fog.near = 16;
-      scene.fog.far = 72;
-      wrap.style.background = night;
-      hemi.intensity = 0.2;
-      ambient.intensity = 0.07;
-      sun.intensity = 0.24;
-      sun.color.set("#9db4ff");                // moonlight
-      bounce.intensity = 0.04;
-      muzzleBoost = 2.4;                       // a shot lights up the street
-    }
-
-    // ------------------------------------------------------------ airstrikes
-    function callAirstrike() {
-      if (!alive || matchOver || countdown > 0 || airstrikesLeft < 1) return;
-      camera.getWorldDirection(aimDir);
-      raycaster.set(camera.position, aimDir);
-      raycaster.far = 160;
-      const hits = raycaster.intersectObjects(shotMeshes, false);
-      raycaster.far = RANGE;
-      if (!hits.length) { hud.toast("AIM AT THE GROUND TO CALL IT IN", "#e94560"); return; }
-      const pt = hits[0].point;
-      s.socket.emit("shooter-input", { t: "airstrike", target: [pt.x, pt.y, pt.z] });
-    }
-
-    const booms = [];            // animated explosions and warning markers
-    const markerGeo = new THREE.RingGeometry(2.2, 2.7, 32);
-    const markerMat = new THREE.MeshBasicMaterial({ color: 0xe94560, transparent: true, opacity: 0.8, side: THREE.DoubleSide });
-
-    function warnAt(pt, lifeMs) {
-      const ring = new THREE.Mesh(markerGeo, markerMat.clone());
-      ring.rotation.x = -Math.PI / 2;
-      ring.position.set(pt[0], 0.25, pt[2]);
-      scene.add(ring);
-      booms.push({ kind: "marker", obj: ring, born: performance.now(), life: lifeMs });
-    }
-
-    function explodeAt(pt, radius) {
-      const now = performance.now();
-      const fire = new THREE.Mesh(
-        new THREE.SphereGeometry(1, 16, 12),
-        new THREE.MeshBasicMaterial({ color: 0xff8a3d, transparent: true, opacity: 0.95 })
-      );
-      fire.position.set(pt[0], 1, pt[2]);
-      scene.add(fire);
-      booms.push({ kind: "fire", obj: fire, born: now, life: 700, radius });
-
-      const smoke = new THREE.Mesh(
-        new THREE.SphereGeometry(1, 12, 10),
-        new THREE.MeshBasicMaterial({ color: 0x2a2724, transparent: true, opacity: 0.55, depthWrite: false })
-      );
-      smoke.position.set(pt[0], 1.5, pt[2]);
-      scene.add(smoke);
-      booms.push({ kind: "smoke", obj: smoke, born: now, life: 2600, radius });
-
-      const scorch = new THREE.Mesh(
-        new THREE.CircleGeometry(radius * 0.55, 20),
-        new THREE.MeshBasicMaterial({ color: 0x14110f, transparent: true, opacity: 0.7, depthWrite: false })
-      );
-      scorch.rotation.x = -Math.PI / 2;
-      scorch.position.set(pt[0], 0.21 + Math.random() * 0.01, pt[2]);  // never coplanar with another
-      scene.add(scorch);
-      booms.push({ kind: "scorch", obj: scorch, born: now, life: 12000 });
-
-      const flash = new THREE.PointLight(0xffa04a, 6, radius * 5, 2);
-      flash.position.set(pt[0], 2.5, pt[2]);
-      scene.add(flash);
-      booms.push({ kind: "flash", obj: flash, born: now, life: 450 });
-
-      // shake the camera if it went off near you
-      const d = camera.position.distanceTo(new THREE.Vector3(pt[0], camera.position.y, pt[2]));
-      if (d < 22) {
-        const k = 1 - d / 22;
-        recoilVelP += 2.6 * k;
-        recoilVelY += (Math.random() - 0.5) * 3 * k;
-      }
-    }
-
-    function updateBooms() {
-      const now = performance.now();
-      for (let i = booms.length - 1; i >= 0; i--) {
-        const b = booms[i];
-        const t = (now - b.born) / b.life;
-        if (t >= 1) {
-          scene.remove(b.obj);
-          if (b.obj.geometry && b.kind !== "marker") b.obj.geometry.dispose();
-          if (b.obj.material) b.obj.material.dispose();
-          booms.splice(i, 1);
-          continue;
-        }
-        if (b.kind === "fire") {
-          b.obj.scale.setScalar(0.5 + t * b.radius * 1.1);
-          b.obj.material.opacity = 0.95 * (1 - t);
-        } else if (b.kind === "smoke") {
-          b.obj.scale.setScalar(1 + t * b.radius * 0.9);
-          b.obj.position.y = 1.5 + t * 4;
-          b.obj.material.opacity = 0.55 * (1 - t);
-        } else if (b.kind === "flash") {
-          b.obj.intensity = 6 * (1 - t);
-        } else if (b.kind === "marker") {
-          b.obj.material.opacity = 0.35 + 0.45 * Math.abs(Math.sin(now / 90));   // urgent blink
-        } else if (b.kind === "scorch") {
-          b.obj.material.opacity = 0.7 * (1 - Math.max(0, t - 0.7) / 0.3);
-        }
-      }
+    // ---------------------------------------------------------- seeded world
+    // The server picks the seed; the shared map file turns it into cover. The
+    // same function runs on the server, so what you can hide behind here is
+    // exactly what stops a bullet there.
+    function applyWorld(seed) {
+      if (seed === null || seed === undefined || seed === worldSeed) return;
+      worldSeed = seed;
+      const cover = MAP.generate(seed);
+      for (const b of cover) addBox(b);
+      octree = new Octree().fromGraphNode(collideGroup);   // rebuild collision with the cover in it
+      radarWalls.push(...toRadar(cover));
     }
 
     // ----------------------------------------------------------------- input
@@ -1176,7 +1064,6 @@
       if (e.code === "ShiftLeft" || e.code === "ShiftRight" ||
           e.code === "ControlLeft" || e.code === "ControlRight") wantCrouch = true;
       if (e.code === "KeyR") reload();
-      if (e.code === "Digit4") callAirstrike();
       if (e.code === "KeyU" && alive && !matchOver) {      // manual escape hatch
         teleport(nearestSpawn(camera.position));
         stuckFor = 0;
@@ -1228,26 +1115,9 @@
       hud.setMap(data.map);
       if (data.maxHp) maxHp = data.maxHp;
       if (data.mode && (!mode || mode.id !== data.mode.id)) applyMode(data.mode);
+      applyWorld(data.seed);
+      hud.setWorld(data.seed);
     });
-
-    s.sock("shooter-streak", ({ type, by, byUid }) => {
-      const mine = byUid === myUid;
-      if (type === "uav") {
-        if (mine) hud.announce("UAV ONLINE", "Every enemy is on your radar for 20s", "#4ecca3");
-        else hud.announce("ENEMY UAV SPOTTED", by + " can see you on radar", "#e94560");
-      } else if (type === "airstrike-ready") {
-        if (mine) hud.announce("AIRSTRIKE READY", "Press 4 to call it in on your crosshair", "#f7c948");
-        else hud.feedLine(by + " has an airstrike", "#f7c948");
-      }
-    });
-
-    s.sock("shooter-airstrike", ({ by, byUid, points, warningMs, gapMs }) => {
-      points.forEach((pt, k) => warnAt(pt, warningMs + k * gapMs + 150));
-      if (byUid === myUid) hud.announce("AIRSTRIKE INBOUND", "Bombs away in " + Math.round(warningMs / 1000) + "s", "#f7c948");
-      else hud.announce("AIRSTRIKE INCOMING", by + " called one in \u2014 get under a roof", "#e94560");
-    });
-
-    s.sock("shooter-boom", ({ pos, radius }) => explodeAt(pos, radius || 5.5));
 
     s.sock("shooter-you", ({ uid }) => { myUid = uid; });
 
@@ -1297,9 +1167,6 @@
         respawnIn = me.rs || 0;
         buffs = { bd: me.bd || 0, bs: me.bs || 0, bp: me.bp || 0 };
         speedMul = (buffs.bs > 0 ? SPEED_BUFF : 1) * modeSpeed;
-        streak = me.sk || 0;
-        uavLeft = me.ua || 0;
-        airstrikesLeft = me.as || 0;
         const nowOkr = !!me.ok;
         if (nowOkr && !inOkr) {
           okrPulse = 1;
@@ -1481,15 +1348,13 @@
       updateSmoke(dt);
       if (firing) fire();
       updateEffects();
-      updateBooms();
       drawMinimap();
       updateGun(dt);
       renderer.clear();
       renderer.render(scene, camera);
       renderer.clearDepth();           // weapon pass — never clips into geometry
       renderer.render(viewScene, viewCamera);
-      hud.update({ hp, maxHp, ammo, reloading, countdown, timeLeft, alive, locked, deathMessage, buffs, inOkr, respawnIn, ads, crouch,
-                   streak, uavLeft, airstrikesLeft });
+      hud.update({ hp, maxHp, ammo, reloading, countdown, timeLeft, alive, locked, deathMessage, buffs, inOkr, respawnIn, ads, crouch });
     }
     animate();
   }
@@ -1581,11 +1446,6 @@
       "font-weight:900;letter-spacing:3px;color:#f7c948;text-shadow:0 2px 6px rgba(0,0,0,0.9);");
     const modeIntroEl = el("position:absolute;top:24%;left:50%;transform:translateX(-50%) scale(0.85);opacity:0;" +
       "transition:opacity 300ms,transform 300ms;text-align:center;white-space:nowrap;");
-    const announceEl = el("position:absolute;top:18%;left:50%;transform:translateX(-50%) scale(0.8);opacity:0;" +
-      "transition:opacity 220ms,transform 220ms;text-align:center;white-space:nowrap;");
-    const streakEl = el("position:absolute;bottom:52px;right:14px;text-align:right;font-size:0.72rem;" +
-      "font-weight:900;letter-spacing:2px;text-shadow:0 2px 6px rgba(0,0,0,0.9);");
-
     const feed = el("position:absolute;top:172px;left:12px;font-size:0.78rem;font-weight:700;text-shadow:0 2px 6px rgba(0,0,0,0.8);line-height:1.6;");
     const mapName = el("position:absolute;bottom:10px;left:50%;transform:translateX(-50%);font-size:0.7rem;color:#8892a4;letter-spacing:2px;text-transform:uppercase;");
 
@@ -1626,7 +1486,7 @@
       '<div style="font-size:0.85rem;color:#c9d2e3;line-height:1.8;">' +
       '<b>WASD</b> move &nbsp;·&nbsp; <b>Space</b> jump &nbsp;·&nbsp; <b>Shift/Ctrl</b> duck<br>' +
       '<b>Right-click</b> aim down sights &nbsp;·&nbsp; <b>Mouse</b> look<br>' +
-      '<b>4</b> call in an airstrike (5-kill streak) &nbsp;·&nbsp; <b>U</b> unstick<br>' +
+      '<b>U</b> unstick if you are ever trapped<br>' +
       '<b>Click</b> fire &nbsp;·&nbsp; <b>R</b> reload &nbsp;·&nbsp; <b>F</b> fullscreen &nbsp;·&nbsp; <b>Esc</b> release cursor<br>' +
       '<span style="color:#8892a4">Grab the glowing pickups: health, shield, 2\u00d7 damage, speed</span></div>'
     );
@@ -1636,7 +1496,6 @@
     let toastTimer = null;
     let okrTimer = null;
     let introTimer = null;
-    let announceTimer = null;
     let healTimer = null;
     let endTimer = null;
     const feedItems = [];
@@ -1662,37 +1521,21 @@
           modeIntroEl.style.transform = "translateX(-50%) scale(0.85)";
         }, 5200);
       },
-      announce(title, sub, color) {
-        announceEl.innerHTML =
-          '<div style="font-size:1.6rem;font-weight:900;letter-spacing:3px;color:' + color + ';' +
-            'text-shadow:0 0 16px ' + color + '66,0 3px 10px rgba(0,0,0,0.9)">' + esc(title) + '</div>' +
-          (sub ? '<div style="margin-top:0.2rem;font-size:0.9rem;font-weight:800;color:#e8ecf3;' +
-            'text-shadow:0 2px 8px rgba(0,0,0,0.9)">' + esc(sub) + '</div>' : "");
-        announceEl.style.opacity = "1";
-        announceEl.style.transform = "translateX(-50%) scale(1)";
-        clearTimeout(announceTimer);
-        announceTimer = setTimeout(() => {
-          announceEl.style.opacity = "0";
-          announceEl.style.transform = "translateX(-50%) scale(0.8)";
-        }, 2600);
-      },
-      feedLine(text, color) {
-        feedItems.unshift('<span style="color:' + (color || "#c9d2e3") + '">' + esc(text) + '</span>');
-        if (feedItems.length > 5) feedItems.pop();
-        feed.innerHTML = feedItems.join("<br>");
-      },
       stopTimers() {
         clearInterval(endTimer);
         clearTimeout(okrTimer);
         clearTimeout(introTimer);
-        clearTimeout(announceTimer);
         clearTimeout(healTimer);
         clearTimeout(toastTimer);
         clearTimeout(hitTimer);
         clearTimeout(dmgTimer);
       },
       setLocked(locked) { lockOverlay.style.display = locked ? "none" : "flex"; },
-      setMap(name) { mapName.textContent = name || ""; },
+      setMap(name) { mapName.dataset.name = name || ""; mapName.textContent = name || ""; },
+      setWorld(seed) {
+        const base = mapName.dataset.name || "";
+        mapName.textContent = seed === null || seed === undefined ? base + " \u00b7 CLASSIC" : base + " \u00b7 WORLD " + seed;
+      },
       markHit(head) {
         hitMarker.style.opacity = "1";
         hitMarker.querySelectorAll("div").forEach((d) => { d.style.background = head ? "#f7c948" : "#fff"; });
@@ -1805,8 +1648,7 @@
         feed.innerHTML = feedItems.join("<br>");
       },
       addFeed(killer, victim, headshot, weapon) {
-        const icon = weapon === "airstrike" ? '<span style="color:#ff8a3d">\u2708</span>'
-          : headshot ? '<span style="color:#f7c948">✷</span>' : '→';
+        const icon = headshot ? '<span style="color:#f7c948">✷</span>' : '→';
         feedItems.unshift(
           '<span style="color:#4ecca3">' + esc(killer) + '</span> ' +
           icon +
@@ -1829,18 +1671,6 @@
             .join("");
       },
       update(st) {
-        // killstreak panel: what you have, and what the next kill earns
-        const s = st.streak || 0;
-        let next = "";
-        if (s < 3) next = "UAV IN " + (3 - s);
-        else if (s < 5) next = "AIRSTRIKE IN " + (5 - s);
-        const lines = [];
-        if (st.uavLeft > 0) lines.push('<span style="color:#4ecca3">UAV ' + st.uavLeft + 's</span>');
-        if (st.airstrikesLeft > 0) lines.push('<span style="color:#f7c948">\u2708 AIRSTRIKE READY [4]</span>');
-        lines.push('<span style="color:#8892a4">STREAK ' + s + (next ? " \u00b7 " + next : "") + '</span>');
-        const html = lines.join("<br>");
-        if (streakEl.innerHTML !== html) streakEl.innerHTML = html;
-
         okrTint.style.opacity = st.inOkr ? "1" : "0";
         // The crosshair stays on screen while zoomed and tightens with the zoom,
         // rather than fading out - you are magnifying the view, not looking down

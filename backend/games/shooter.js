@@ -33,44 +33,48 @@ const OKR_REGEN = 4;
 const TARGET_RESPAWN_MS = 30000;   // a smashed sign is re-hung after 30s
 const END_SCREEN_MS = 9000;        // the final board stays up in-game before the platform takes over
 
-// ---- killstreaks, CoD style: kills without dying earn rewards -------------
-const UAV_STREAK = 3;
-const UAV_MS = 20000;              // your radar shows every enemy
-const AIRSTRIKE_STREAK = 5;
-const AIRSTRIKE_WARNING_MS = 2600; // markers on the ground before the first bomb
-const AIRSTRIKE_BOMBS = 5;
-const AIRSTRIKE_SPACING = 3.6;     // metres between bombs along the run
-const AIRSTRIKE_GAP_MS = 260;
-const AIRSTRIKE_RADIUS = 5.5;
-const AIRSTRIKE_DAMAGE = 130;      // at the centre, falling off to a third at the edge
-
-// ---- modes: every round rolls one, so no two rounds play the same ---------
-// Server-side effects live here; the client applies the visual and movement
-// ones (gravity, speed, big heads, night, hidden tags) from the same id.
+// ---- modes: the host picks one in the lobby, or lets each round roll ------
+// Server-side effects live here; the client applies the movement and visual
+// ones (gravity, speed, big heads, hidden tags) from the same id.
 const MODES = [
+  { id: "standard",   name: "STANDARD",     blurb: "No tricks. Just aim." },
   { id: "hardcore",   name: "HARDCORE",     blurb: "60 health. No name tags. Every shot counts.", maxHp: 60 },
+  { id: "oneshot",    name: "ONE SHOT",     blurb: "Any hit kills. Whoever shoots first wins.", oneShot: true },
   { id: "headhunter", name: "HEADHUNTER",   blurb: "Body shots barely scratch. Headshots drop anyone.", bodyMul: 0.35, headMul: 4 },
   { id: "lowgrav",    name: "LOW GRAVITY",  blurb: "Everyone floats. Take the high ground." },
   { id: "vampire",    name: "VAMPIRE",      blurb: "Every hit heals you. Kills heal more.", lifesteal: 0.5, killHeal: 50 },
   { id: "speed",      name: "SPEED DEMONS", blurb: "Everyone moves 60% faster." },
   { id: "bigheads",   name: "BIG HEADS",    blurb: "Heads are huge. Aim high." },
   { id: "surge",      name: "POWER SURGE",  blurb: "Pickups respawn in seconds. Buffs last twice as long.", pickupMul: 0.2, buffMul: 2 },
-  { id: "night",      name: "NIGHT OPS",    blurb: "Lights out. Stay near the fires." },
 ];
 
-// Rolls a mode, never repeating the last one played in this room.
+// The mode the host chose, or for "random" a different twist each round.
 function pickMode(room) {
-  const pool = MODES.filter((m) => m.id !== room.lastShooterMode);
+  const wanted = (room.settings && room.settings.mode) || "standard";
+  if (wanted !== "random") return MODES.find((m) => m.id === wanted) || MODES[0];
+  const pool = MODES.filter((m) => m.id !== "standard" && m.id !== room.lastShooterMode);
   const mode = pool[Math.floor(Math.random() * pool.length)];
   room.lastShooterMode = mode.id;
   return mode;
 }
 
+// "classic" is the hand-built map. Otherwise a seed generates the cover: the
+// host's seed if they typed one (so a good world can be replayed), else a new
+// one every round.
+function pickSeed(room) {
+  const st = room.settings || {};
+  if (st.world === "classic") return null;
+  const typed = String(st.seed == null ? "" : st.seed).trim();
+  if (/^\d{1,9}$/.test(typed)) return Number(typed);
+  return Math.floor(Math.random() * 1000000);
+}
+
 const COLORS = ["#f7c948", "#e94560", "#4ecca3", "#5dade2", "#af7ac5", "#ff8c42", "#42f5b0", "#f542e0"];
 
-// Pre-compute AABB min/max for line-of-sight tests. Decorative boxes
-// (foliage, glass, ground decals) are marked solid:false and never block a shot.
-const AABBS = MAP.boxes.filter((b) => b.solid !== false).map((b) => ({
+// AABB min/max for line-of-sight tests. Decorative boxes (foliage, ground
+// decals) are marked solid:false and never block a shot. Built per world, since
+// a generated world adds its own cover.
+const toAabbs = (boxes) => boxes.filter((b) => b.solid !== false).map((b) => ({
   min: [b.pos[0] - b.size[0] / 2 + BOX_SHRINK, b.pos[1] - b.size[1] / 2 + BOX_SHRINK, b.pos[2] - b.size[2] / 2 + BOX_SHRINK],
   max: [b.pos[0] + b.size[0] / 2 - BOX_SHRINK, b.pos[1] + b.size[1] / 2 - BOX_SHRINK, b.pos[2] + b.size[2] / 2 - BOX_SHRINK],
 }));
@@ -108,8 +112,8 @@ function segmentHitsBox(from, to, box) {
   return true;
 }
 
-function blocked(from, to) {
-  for (const box of AABBS) if (segmentHitsBox(from, to, box)) return true;
+function blocked(from, to, aabbs) {
+  for (const box of aabbs) if (segmentHitsBox(from, to, box)) return true;
   return false;
 }
 
@@ -124,9 +128,10 @@ class ShooterGame {
     this.timer = null;
     this.startedAt = 0;
     this.ended = false;
-    this.pending = [];               // scheduled airstrike bombs, cleared on stop
-
     this.mode = pickMode(room);
+    this.seed = pickSeed(room);
+    this.map = MAP.forSeed(this.seed);
+    this.aabbs = toAabbs(this.map.boxes);
     this.maxHp = this.mode.maxHp || MAX_HP;
     this.bodyMul = this.mode.bodyMul || 1;
     this.headMul = this.mode.headMul || 1;
@@ -146,7 +151,7 @@ class ShooterGame {
       countdownMs: COUNTDOWN_MS,
       maxHp: this.maxHp,
       mode: { id: this.mode.id, name: this.mode.name, blurb: this.mode.blurb },
-      streaks: { uav: UAV_STREAK, airstrike: AIRSTRIKE_STREAK },
+      seed: this.seed,
     };
   }
 
@@ -163,9 +168,6 @@ class ShooterGame {
         hp: this.maxHp,
         alive: true,
         kills: 0,
-        streak: 0,             // kills since you last died
-        uavUntil: 0,
-        airstrikes: 0,
         deaths: 0,
         pos: [0, 0, 0],
         rot: [0, 0],
@@ -245,8 +247,6 @@ class ShooterGame {
   stop() {
     if (this.timer) clearInterval(this.timer);
     this.timer = null;
-    this.pending.forEach(clearTimeout);
-    this.pending = [];
     if (this.endTimer) { clearTimeout(this.endTimer); this.endTimer = null; }
     this.ended = true;
   }
@@ -307,7 +307,6 @@ class ShooterGame {
     if (data.t === "hit") return this.resolveHit(p, data);
     if (data.t === "target") return this.resolveTarget(p, data);
     if (data.t === "pickup") return this.resolvePickup(p, data);
-    if (data.t === "airstrike") return this.callAirstrike(p, data);
   }
 
   resolvePickup(player, data) {
@@ -363,15 +362,16 @@ class ShooterGame {
     const eye = [shooter.pos[0], shooter.pos[1] + eyeH, shooter.pos[2]];
     const chest = [victim.pos[0], victim.pos[1] + chestH, victim.pos[2]];
     const head = [victim.pos[0], victim.pos[1] + headH, victim.pos[2]];
-    if (blocked(eye, chest) && blocked(eye, head)) return;
+    if (blocked(eye, chest, this.aabbs) && blocked(eye, head, this.aabbs)) return;
 
     let damage = data.part === "head" ? HEAD_DAMAGE * this.headMul : BODY_DAMAGE * this.bodyMul;
     if (now < shooter.damageUntil) damage *= DAMAGE_BUFF;
+    if (this.mode.oneShot) damage = victim.hp * 2 + 999;   // survives a shield halving it
     this.damagePlayer(shooter, victim, damage, { headshot: data.part === "head" });
   }
 
   // One path for all damage, so shields, lifesteal and kill credit apply the
-  // same whether the hit came from a rifle or an airstrike.
+  // same wherever the damage came from.
   damagePlayer(attacker, victim, amount, opts = {}) {
     if (!victim.alive) return;
     if (Date.now() < victim.shieldUntil) amount *= SHIELD_FACTOR;
@@ -384,7 +384,7 @@ class ShooterGame {
     }
     this.io.to(victim.id).emit("shooter-damaged", { from: attacker.name, hp: Math.max(0, victim.hp) });
 
-    if (victim.hp <= 0) this.killPlayer(attacker, victim, !!opts.headshot, opts.weapon, !!opts.streakKill);
+    if (victim.hp <= 0) this.killPlayer(attacker, victim, !!opts.headshot, opts.weapon);
   }
 
   resolveTarget(shooter, data) {
@@ -403,7 +403,7 @@ class ShooterGame {
     const dx = eye[0] - t.pos[0], dy = eye[1] - t.pos[1], dz = eye[2] - t.pos[2];
     const len = Math.sqrt(dx * dx + dy * dy + dz * dz) || 1;
     const face = [t.pos[0] + (dx / len) * 0.7, t.pos[1] + (dy / len) * 0.7, t.pos[2] + (dz / len) * 0.7];
-    if (blocked(eye, face)) return;
+    if (blocked(eye, face, this.aabbs)) return;
 
     let damage = BODY_DAMAGE;
     if (now < shooter.damageUntil) damage *= DAMAGE_BUFF;
@@ -420,11 +420,10 @@ class ShooterGame {
     }
   }
 
-  killPlayer(killer, victim, headshot, weapon, streakKill) {
+  killPlayer(killer, victim, headshot, weapon) {
     victim.hp = 0;
     victim.alive = false;
     victim.deaths++;
-    victim.streak = 0;                              // a death ends your streak
     victim.respawnAt = Date.now() + RESPAWN_MS;
     killer.kills++;
     if (this.killHeal && killer.alive) killer.hp = Math.min(this.maxHp, killer.hp + this.killHeal);
@@ -439,67 +438,6 @@ class ShooterGame {
       headshot: !!headshot,
       weapon: weapon || "rifle",
     });
-
-    // As in CoD, kills made BY a killstreak do not feed the next one.
-    if (!streakKill && killer.alive) this.advanceStreak(killer);
-  }
-
-  advanceStreak(p) {
-    p.streak++;
-    if (p.streak === UAV_STREAK) {
-      p.uavUntil = Date.now() + UAV_MS;
-      this.io.to(this.room.code).emit("shooter-streak", { type: "uav", by: p.name, byUid: p.uid, ms: UAV_MS });
-    }
-    if (p.streak === AIRSTRIKE_STREAK) {
-      p.airstrikes++;
-      this.io.to(this.room.code).emit("shooter-streak", { type: "airstrike-ready", by: p.name, byUid: p.uid });
-    }
-  }
-
-  callAirstrike(p, data) {
-    if (!p.alive || p.airstrikes < 1 || this.inCountdown()) return;
-    const t = data.target;
-    if (!Array.isArray(t) || t.length !== 3 || !t.every(Number.isFinite)) return;
-    const half = MAP.half - 2;
-    if (Math.abs(t[0]) > half || Math.abs(t[2]) > half) return;
-
-    p.airstrikes--;
-    // The run crosses the target along the caller's facing, so it is readable
-    // from where they stood: bombs walk away from them through the point.
-    const yaw = Array.isArray(p.rot) ? p.rot[0] : 0;
-    const dir = [-Math.sin(yaw), -Math.cos(yaw)];
-    const points = [];
-    for (let k = 0; k < AIRSTRIKE_BOMBS; k++) {
-      const off = (k - (AIRSTRIKE_BOMBS - 1) / 2) * AIRSTRIKE_SPACING;
-      const x = Math.max(-half, Math.min(half, t[0] + dir[0] * off));
-      const z = Math.max(-half, Math.min(half, t[2] + dir[1] * off));
-      points.push([x, 0, z]);
-    }
-
-    this.io.to(this.room.code).emit("shooter-airstrike", {
-      by: p.name, byUid: p.uid, points, warningMs: AIRSTRIKE_WARNING_MS, gapMs: AIRSTRIKE_GAP_MS,
-    });
-
-    points.forEach((pt, k) => {
-      const timer = setTimeout(() => this.bomb(p, pt), AIRSTRIKE_WARNING_MS + k * AIRSTRIKE_GAP_MS);
-      this.pending.push(timer);
-    });
-  }
-
-  bomb(owner, pt) {
-    if (this.ended) return;
-    this.io.to(this.room.code).emit("shooter-boom", { pos: pt, radius: AIRSTRIKE_RADIUS });
-    for (const v of this.players.values()) {
-      if (v === owner || !v.alive) continue;          // your own airstrike spares you
-      const dx = v.pos[0] - pt[0], dz = v.pos[2] - pt[2];
-      const d = Math.sqrt(dx * dx + dz * dz);
-      if (d > AIRSTRIKE_RADIUS) continue;
-      // Bombs come from above: anyone with a roof over their head is safe.
-      const body = [v.pos[0], v.pos[1] + CHEST_HEIGHT, v.pos[2]];
-      if (blocked([v.pos[0], 40, v.pos[2]], body)) continue;
-      const falloff = 1 - (d / AIRSTRIKE_RADIUS) * 0.67;
-      this.damagePlayer(owner, v, AIRSTRIKE_DAMAGE * falloff, { weapon: "airstrike", streakKill: true });
-    }
   }
 
   respawn(p) {
@@ -525,7 +463,6 @@ class ShooterGame {
     p.damageUntil = 0;   // buffs die with you
     p.speedUntil = 0;
     p.shieldUntil = 0;
-    p.uavUntil = 0;
     this.io.to(p.id).emit("shooter-spawn", { pos: p.pos, hp: this.maxHp });
   }
 
@@ -575,9 +512,6 @@ class ShooterGame {
         bd: Math.max(0, Math.ceil((p.damageUntil - now) / 1000)),
         bs: Math.max(0, Math.ceil((p.speedUntil - now) / 1000)),
         bp: Math.max(0, Math.ceil((p.shieldUntil - now) / 1000)),
-        sk: p.streak,
-        ua: Math.max(0, Math.ceil((p.uavUntil - now) / 1000)),
-        as: p.airstrikes,
       })),
     });
 

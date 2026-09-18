@@ -738,7 +738,122 @@
     { id: "d1", type: "damage", pos: [0, 9.4, -26] },        // castle keep roof - high risk
   ];
 
-  return {
+  // ======================================================= generated worlds
+  // A seed turns into the cover between the landmarks - crates, stacks,
+  // barricades, walls, containers - so every world plays differently while the
+  // hand-built places keep it recognisable.
+  //
+  // Server and browsers both call generate() with the same seed, and the PRNG is
+  // pure integer maths, so they build the identical world: hit validation and
+  // what you see cannot disagree.
+  //
+  // Every piece is a free-standing, axis-aligned block kept well clear of the
+  // hand-built map and of each other. That rules out wedge slots and pockets
+  // you cannot climb out of by construction; tools/check-map.js and
+  // tools/check-reachable.js then confirm it across many seeds.
+  function mulberry32(a) {
+    return function () {
+      a |= 0;
+      a = (a + 0x6D2B79F5) | 0;
+      let t = Math.imul(a ^ (a >>> 15), 1 | a);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+
+  const GEN = {
+    cell: 5.0,          // at most one piece per cell of the grid
+    density: 0.62,      // chance a clear cell gets one
+    wallGap: 1.8,       // clearance from anything hand-built
+    pieceGap: 1.5,      // clearance between generated pieces
+    keepClear: 3.2,     // kept open around spawns and pickups
+  };
+  const COVER = ["#a9784b", "#8a4a2b", "#c9564a", "#d9a441", "#5c6672", "#9a978f", "#6b7a4a"];
+
+  const handBuilt = boxes.filter((b) =>
+    (b.collide !== undefined ? b.collide : b.solid !== false) &&
+    !(b.size[0] >= HALF * 2 - 1 && b.size[2] >= HALF * 2 - 1) &&   // the ground slab is everywhere
+    b.pos[1] - b.size[1] / 2 < 6);                                  // anything low enough to matter
+
+  function generate(seed) {
+    const rnd = mulberry32((seed >>> 0) || 1);
+    const range = (lo, hi) => lo + rnd() * (hi - lo);
+    const placed = [];
+    const out = [];
+    const limit = HALF - FACADE_D - 2.5;
+
+    function fits(x0, x1, z0, z1) {
+      if (x0 < -limit || x1 > limit || z0 < -limit || z1 > limit) return false;
+      for (const b of handBuilt) {
+        const g = GEN.wallGap;
+        if (x1 > b.pos[0] - b.size[0] / 2 - g && x0 < b.pos[0] + b.size[0] / 2 + g &&
+            z1 > b.pos[2] - b.size[2] / 2 - g && z0 < b.pos[2] + b.size[2] / 2 + g) return false;
+      }
+      for (const [a0, a1, c0, c1] of placed) {
+        const g = GEN.pieceGap;
+        if (x1 > a0 - g && x0 < a1 + g && z1 > c0 - g && z0 < c1 + g) return false;
+      }
+      const away = (px, pz) =>
+        Math.hypot(Math.max(x0 - px, 0, px - x1), Math.max(z0 - pz, 0, pz - z1)) >= GEN.keepClear;
+      for (const sp of spawns) if (!away(sp[0], sp[2])) return false;
+      for (const pk of pickups) if (!away(pk.pos[0], pk.pos[2])) return false;
+      for (const zn of zones) {
+        if (x1 > zn.min[0] - 1 && x0 < zn.max[0] + 1 && z1 > zn.min[2] - 1 && z0 < zn.max[2] + 1) return false;
+      }
+      return true;
+    }
+
+    function piece(cx, cz) {
+      const roll = rnd();
+      const color = COVER[Math.floor(rnd() * COVER.length)];
+      const along = rnd() < 0.5;                          // long axis on x or z
+      const parts = [];
+      let w, d;
+      if (roll < 0.34) {                                 // single crate
+        const size = range(1.4, 2.0);
+        w = d = size;
+        parts.push([cx, size / 2, cz, size, range(1.2, 1.9), size]);
+        parts[0][1] = parts[0][4] / 2;
+      } else if (roll < 0.52) {                          // crate stack, climbable
+        w = d = 1.9;
+        parts.push([cx, 0.75, cz, 1.9, 1.5, 1.9]);
+        parts.push([cx + range(-0.25, 0.25), 1.5 + 0.55, cz + range(-0.25, 0.25), 1.3, 1.1, 1.3]);
+      } else if (roll < 0.74) {                          // low barricade you can shoot over
+        const len = range(3.2, 4.6);
+        w = along ? len : 0.6; d = along ? 0.6 : len;
+        parts.push([cx, 0.55, cz, w, 1.1, d]);
+      } else if (roll < 0.9) {                           // wall that blocks the sightline
+        const len = range(3.0, 4.2);
+        w = along ? len : 0.6; d = along ? 0.6 : len;
+        parts.push([cx, 1.3, cz, w, 2.6, d]);
+      } else {                                           // shipping container
+        w = along ? 5.4 : 2.4; d = along ? 2.4 : 5.4;
+        parts.push([cx, 1.3, cz, w, 2.6, d]);
+      }
+      return { parts, w, d, color };
+    }
+
+    for (let gx = -limit; gx < limit; gx += GEN.cell) {
+      for (let gz = -limit; gz < limit; gz += GEN.cell) {
+        if (rnd() > GEN.density) continue;
+        const cx = gx + GEN.cell / 2 + range(-0.8, 0.8);
+        const cz = gz + GEN.cell / 2 + range(-0.8, 0.8);
+        const pc = piece(cx, cz);
+        const fp = [cx - pc.w / 2, cx + pc.w / 2, cz - pc.d / 2, cz + pc.d / 2];
+        if (!fits(fp[0], fp[1], fp[2], fp[3])) continue;
+        placed.push(fp);
+        pc.parts.forEach((pt, i) => out.push({
+          pos: [pt[0], pt[1], pt[2]],
+          size: [pt[3], pt[4], pt[5]],
+          color: i === 0 ? pc.color : COVER[(COVER.indexOf(pc.color) + 3) % COVER.length],
+          generated: true,
+        }));
+      }
+    }
+    return out;
+  }
+
+  const map = {
     name: "Norli Plaza",
     half: HALF,
     bound: HALF - FACADE_D,     // inner face of the city block: nothing is playable past it
@@ -754,5 +869,12 @@
     effects,
     spawns,
     pickups,
+    seed: null,
+    generate,
   };
+  // The same map with a seeded world laid over it. seed null = the classic map.
+  map.forSeed = (seed) => (seed === null || seed === undefined
+    ? map
+    : Object.assign({}, map, { boxes: boxes.concat(generate(seed)), seed }));
+  return map;
 });

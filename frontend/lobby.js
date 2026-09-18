@@ -59,6 +59,74 @@ function renderGameSettings(game) {
       });
     });
   }
+
+  if (game === "shooter") {
+    gameSettings.rounds = 1;
+    gameSettings.mode = "standard";
+    gameSettings.world = "generated";
+    gameSettings.seed = "";
+    const MODES = [
+      ["standard", "Standard"],
+      ["hardcore", "Hardcore \u2014 60 HP, no name tags"],
+      ["oneshot", "One Shot \u2014 any hit kills"],
+      ["headhunter", "Headhunter \u2014 headshots kill, body shots scratch"],
+      ["lowgrav", "Low Gravity"],
+      ["vampire", "Vampire \u2014 hits heal you"],
+      ["speed", "Speed Demons"],
+      ["bigheads", "Big Heads"],
+      ["surge", "Power Surge \u2014 pickups every few seconds"],
+      ["random", "Random twist every round"],
+    ];
+    const field = "width:100%;padding:0.6rem 0.75rem;border-radius:8px;border:1px solid rgba(255,255,255,0.12);" +
+      "background:rgba(255,255,255,0.05);color:inherit;font:inherit;font-weight:700;";
+    container.innerHTML = `
+      <div class="round-picker">
+        <label class="label">Rounds</label>
+        <div class="round-btns" data-group="rounds">
+          ${[1,2,3,4,5].map(n =>
+            `<button class="round-btn${n === 1 ? " active" : ""}" data-rounds="${n}">${n}</button>`
+          ).join("")}
+        </div>
+      </div>
+      <div class="round-picker">
+        <label class="label">Mode</label>
+        <select id="sh-mode" style="${field}">
+          ${MODES.map(([id, label]) => `<option value="${id}">${label}</option>`).join("")}
+        </select>
+      </div>
+      <div class="round-picker">
+        <label class="label">World</label>
+        <div class="round-btns" data-group="world">
+          <button class="round-btn active" data-world="generated" style="flex:1">Generated</button>
+          <button class="round-btn" data-world="classic" style="flex:1">Classic</button>
+        </div>
+        <input id="sh-seed" maxlength="9" inputmode="numeric" autocomplete="off"
+          placeholder="Seed \u2014 leave empty for a new world every round" style="margin-top:0.5rem" />
+      </div>`;
+
+    container.querySelectorAll('[data-group="rounds"] .round-btn').forEach(btn => {
+      btn.addEventListener("click", () => {
+        container.querySelectorAll('[data-group="rounds"] .round-btn').forEach(b => b.classList.remove("active"));
+        btn.classList.add("active");
+        gameSettings.rounds = parseInt(btn.dataset.rounds);
+      });
+    });
+    container.querySelectorAll('[data-group="world"] .round-btn').forEach(btn => {
+      btn.addEventListener("click", () => {
+        container.querySelectorAll('[data-group="world"] .round-btn').forEach(b => b.classList.remove("active"));
+        btn.classList.add("active");
+        gameSettings.world = btn.dataset.world;
+        seedInput.disabled = gameSettings.world === "classic";
+        seedInput.style.opacity = seedInput.disabled ? "0.4" : "1";
+      });
+    });
+    const seedInput = container.querySelector("#sh-seed");
+    container.querySelector("#sh-mode").addEventListener("change", (e) => { gameSettings.mode = e.target.value; });
+    seedInput.addEventListener("input", () => {
+      seedInput.value = seedInput.value.replace(/\D/g, "");
+      gameSettings.seed = seedInput.value;
+    });
+  }
 }
 
 function renderRoom(room) {

@@ -155,10 +155,11 @@ io.on("connection", (socket) => {
     console.log(`${name} rejoined room ${result.code}`);
   });
 
-  socket.on("start-game", ({ rounds } = {}) => {
+  socket.on("start-game", (settings = {}) => {
     for (const [, r] of getRooms()) {
       if (r.host === socket.id) {
-        const total = Math.min(5, Math.max(1, parseInt(rounds) || 1));
+        const total = Math.min(5, Math.max(1, parseInt(settings.rounds) || 1));
+        r.settings = settings;     // games read their own lobby options from here
         activeRounds[r.code] = { current: 1, total, totalScores: {} };
         startGameRound(r);
         return;

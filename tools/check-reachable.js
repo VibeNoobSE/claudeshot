@@ -17,7 +17,9 @@
 //
 //   node tools/check-reachable.js
 
-const MAP = require("../frontend/games/shooter-map.js");
+// MAP_SEED=1234 checks that generated world; unset checks the classic map.
+const BASE_MAP = require("../frontend/games/shooter-map.js");
+const MAP = process.env.MAP_SEED !== undefined ? BASE_MAP.forSeed(Number(process.env.MAP_SEED)) : BASE_MAP;
 
 const STEP = 0.5;             // sampling resolution, metres
 const R = 0.32;               // player radius
