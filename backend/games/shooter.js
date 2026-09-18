@@ -58,7 +58,7 @@ function pickMode(room) {
   return mode;
 }
 
-// "classic" is the hand-built map. Otherwise a seed generates the cover: the
+// "classic" is the hand-built map. Otherwise a seed generates the whole world: the
 // host's seed if they typed one (so a good world can be replayed), else a new
 // one every round.
 function pickSeed(room) {
@@ -78,8 +78,6 @@ const toAabbs = (boxes) => boxes.filter((b) => b.solid !== false).map((b) => ({
   min: [b.pos[0] - b.size[0] / 2 + BOX_SHRINK, b.pos[1] - b.size[1] / 2 + BOX_SHRINK, b.pos[2] - b.size[2] / 2 + BOX_SHRINK],
   max: [b.pos[0] + b.size[0] / 2 - BOX_SHRINK, b.pos[1] + b.size[1] / 2 - BOX_SHRINK, b.pos[2] + b.size[2] / 2 - BOX_SHRINK],
 }));
-
-const OKR_ZONE = (MAP.zones || []).find((z) => z.id === "okr") || null;
 
 function inZone(pos, z) {
   return pos[0] >= z.min[0] && pos[0] <= z.max[0] &&
@@ -132,6 +130,8 @@ class ShooterGame {
     this.seed = pickSeed(room);
     this.map = MAP.forSeed(this.seed);
     this.aabbs = toAabbs(this.map.boxes);
+    // the OKR room moves with the world, so its zone is per world too
+    this.okrZone = (this.map.zones || []).find((z) => z.id === "okr") || null;
     this.maxHp = this.mode.maxHp || MAX_HP;
     this.bodyMul = this.mode.bodyMul || 1;
     this.headMul = this.mode.headMul || 1;
@@ -188,7 +188,7 @@ class ShooterGame {
     // on opposite sides of the block. Dealing randomly from the whole list put
     // people in the middle of the map, sometimes inside a building.
     const count = this.players.size;
-    const all = MAP.spawns.map((sp, idx) => ({ sp, idx, r: Math.hypot(sp[0], sp[2]) }));
+    const all = this.map.spawns.map((sp, idx) => ({ sp, idx, r: Math.hypot(sp[0], sp[2]) }));
     const corners = all.filter((c) => Math.abs(c.sp[0]) > 30 && Math.abs(c.sp[2]) > 30);
     const outer = all.filter((c) => c.r > 26);
     const pool = corners.length >= count ? corners : (outer.length >= count ? outer : all);
@@ -216,7 +216,7 @@ class ShooterGame {
     }
 
     // Shootable signage. Smashing one scores, and it goes back up after a while.
-    for (const m of MAP.models || []) {
+    for (const m of this.map.models || []) {
       if (!m.target) continue;
       this.targets.set(m.target.id, {
         id: m.target.id,
@@ -229,7 +229,7 @@ class ShooterGame {
       });
     }
 
-    for (const pk of MAP.pickups) {
+    for (const pk of this.map.pickups) {
       this.pickups.set(pk.id, { id: pk.id, type: pk.type, pos: pk.pos, readyAt: 0 });
     }
 
@@ -297,6 +297,12 @@ class ShooterGame {
     // The client loads three.js from a CDN before it can register socket
     // handlers, so any spawn we pushed at game start or on reconnect arrived
     // before anything was listening. It asks for its spawn when actually ready.
+    // The whole world comes from the seed, so the client asks which one before it
+    // builds anything. Nothing else happens until it is built and sends "ready".
+    if (data.t === "hello") {
+      this.io.to(p.id).emit("shooter-world", { seed: this.seed });
+      return;
+    }
     if (data.t === "ready") {
       p.spawnAcked = true;
       this.io.to(p.id).emit("shooter-init", this.initPayload());
@@ -445,13 +451,13 @@ class ShooterGame {
     // at random from the safest half. Always taking the single furthest spawn is
     // deterministic, which is why players kept reappearing in the same place.
     const others = [...this.players.values()].filter((o) => o !== p && o.alive);
-    const scored = MAP.spawns
+    const scored = this.map.spawns
       .map((sp, idx) => {
         let nearest = Infinity;
         for (const o of others) nearest = Math.min(nearest, dist(sp, o.pos));
         return { sp, idx, score: others.length ? nearest : 0 };
       })
-      .filter((c) => c.idx !== p.lastSpawn || MAP.spawns.length < 3)
+      .filter((c) => c.idx !== p.lastSpawn || this.map.spawns.length < 3)
       .sort((a, b) => b.score - a.score);
 
     const pool = others.length ? Math.max(3, Math.ceil(scored.length / 2)) : scored.length;
@@ -481,7 +487,7 @@ class ShooterGame {
       if (!p.alive && now >= p.respawnAt) { this.respawn(p); continue; }
       if (!p.alive) continue;
       // OKR room: standing inside heals you steadily (the client tightens your aim)
-      p.okr = !!(OKR_ZONE && inZone(p.pos, OKR_ZONE));
+      p.okr = !!(this.okrZone && inZone(p.pos, this.okrZone));
       if (p.okr && p.hp < this.maxHp && now - p.lastRegen >= OKR_REGEN_MS) {
         p.hp = Math.min(this.maxHp, p.hp + OKR_REGEN);
         p.lastRegen = now;

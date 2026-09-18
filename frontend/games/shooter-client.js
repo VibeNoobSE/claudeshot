@@ -96,6 +96,20 @@
   async function boot(s, socket, myId, room) {
     s.socket = socket;
 
+    // Which world? The server picks the seed and every aspect of the world comes
+    // from it, so ask before building anything. Asked again until answered: the
+    // game page's socket may not be linked to its player yet.
+    const worldSeed = await new Promise((resolve) => {
+      let timer = 0;
+      const got = ({ seed }) => { clearInterval(timer); socket.off("shooter-world", got); resolve(seed); };
+      socket.on("shooter-world", got);
+      s.cleanups.push(() => { clearInterval(timer); socket.off("shooter-world", got); });
+      const ask = () => socket.emit("shooter-input", { t: "hello" });
+      ask();
+      timer = setInterval(ask, 700);
+    });
+    if (s.disposed) return;
+
     const [THREE, octreeMod, capsuleMod, geoUtils] = await Promise.all([
       import("three"),
       import("three/addons/math/Octree.js"),
@@ -107,7 +121,7 @@
     const { Octree } = octreeMod;
     const { Capsule } = capsuleMod;
     const { mergeGeometries } = geoUtils;
-    const MAP = window.SHOOTER_MAP;
+    const MAP = window.SHOOTER_MAP.forSeed(worldSeed);
 
     // ---------------------------------------------------------------- layout
     // The shell page is built for small canvas games; widen it while we're playing
@@ -312,7 +326,6 @@
     let modeSpeed = 1;
     let hideTags = false;
     let headScale = 1;
-    let worldSeed = null;
     let gunPhase = 0;
     let recoil = 0;
     // Aim is held separately from camera.rotation so screen shake can be layered
@@ -973,7 +986,7 @@
 
     // ---------------------------------------------------------------- minimap
     // CoD-style radar: it turns with you and you are the arrow in the middle.
-    // It draws the walls, including the cover of a generated world.
+    // It draws the walls of whichever world was built.
     const RADAR_RANGE = 34;                                   // metres, centre to rim
     const toRadar = (list) => list
       .filter((b) => (b.collide !== undefined ? b.collide : b.solid !== false) && !b.rot &&
@@ -1045,19 +1058,6 @@
       hud.modeIntro(m);
     }
 
-    // ---------------------------------------------------------- seeded world
-    // The server picks the seed; the shared map file turns it into cover. The
-    // same function runs on the server, so what you can hide behind here is
-    // exactly what stops a bullet there.
-    function applyWorld(seed) {
-      if (seed === null || seed === undefined || seed === worldSeed) return;
-      worldSeed = seed;
-      const cover = MAP.generate(seed);
-      for (const b of cover) addBox(b);
-      octree = new Octree().fromGraphNode(collideGroup);   // rebuild collision with the cover in it
-      radarWalls.push(...toRadar(cover));
-    }
-
     // ----------------------------------------------------------------- input
     s.on(document, "keydown", (e) => {
       keys[e.code] = true;
@@ -1115,7 +1115,11 @@
       hud.setMap(data.map);
       if (data.maxHp) maxHp = data.maxHp;
       if (data.mode && (!mode || mode.id !== data.mode.id)) applyMode(data.mode);
-      applyWorld(data.seed);
+      if (data.seed !== undefined && data.seed !== worldSeed) {
+        // a different world than the one built: start over in the right one
+        window.initShooterClient(socket, myId, room);
+        return;
+      }
       hud.setWorld(data.seed);
     });
 

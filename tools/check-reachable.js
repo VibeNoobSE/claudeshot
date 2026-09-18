@@ -115,6 +115,25 @@ function flood(reverse) {
 const canEnter = flood(false);
 const canLeave = flood(true);
 
+// Every landmark place must be reachable from the spawns: a generated layout
+// could otherwise wall off a doorway or strand a stair against a building.
+let unreachable = 0;
+for (const { name, pts } of MAP.checks || []) {
+  const bad = pts.filter(([x, y, z]) => {
+    // any node within one step: a point beside a parapet can snap to the node
+    // the parapet blocks, depending on how the landmark was placed on the grid
+    for (let di = -1; di <= 1; di++) {
+      for (let dj = -1; dj <= 1; dj++) {
+        const i = toI(x) + di, j = toI(z) + dj;
+        if (inB(i, j) && levels[i][j].some((h, l) => Math.abs(h - y) < 0.35 && canEnter.has(key(i, j, l)))) return false;
+      }
+    }
+    return true;
+  });
+  if (bad.length) { unreachable++; console.log("FAIL  " + name + ": cannot reach " + bad.map((p) => p.join(",")).join(" | ")); }
+}
+if (MAP.checks && !unreachable) console.log("PASS  all " + MAP.checks.length + " landmark places reachable from the spawns");
+
 const stuck = [];
 for (let i = 0; i < N; i++) {
   for (let j = 0; j < N; j++) {
@@ -135,7 +154,7 @@ for (const [x, z, y] of stuck) {
 console.log("standable nodes:", nodeCount, "| can walk into:", canEnter.size, "| can get back out:", canLeave.size);
 if (!groups.length) {
   console.log("PASS  everywhere you can get into, you can get out of");
-  process.exit(0);
+  process.exit(unreachable ? 1 : 0);
 }
 console.log("FAIL  " + groups.length + " place(s) you can get into and not out of:");
 groups.sort((a, b) => b.n - a.n).forEach((g) =>

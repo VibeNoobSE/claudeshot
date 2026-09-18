@@ -60,15 +60,8 @@ for (const [key, g] of Object.entries(groups)) {
 }
 
 // --- named places a player must be able to stand -----------------------------
-const PLACES = {
-  "Norli roof": [[0, 5.6, 0], [10.5, 5.6, 0], [0, 5.6, 6], [-10, 5.6, -6]],
-  "Norli aisles": [[3.2, 0.1, 0], [-3, 0.1, 0], [0, 0.1, -6]],
-  "castle keep roof": [[0, 8.6, -26], [-4, 8.6, -28], [3, 8.6, -24], [-4, 8.6, -30]],
-  "castle ramparts": [[8.7, 4, -26], [-8.7, 4, -26], [0, 4, -32.7]],
-  "castle courtyard": [[0, 0, -21], [5, 0, -27], [-2, 0, -30]],
-  "OKR room": [[0, 0.3, 17], [0, 0.3, 23], [0, 0.3, 15.8], [0, 0.3, 24.2]],
-};
-for (const [name, pts] of Object.entries(PLACES)) {
+// Each landmark lists its own, so they follow it wherever a seed puts it.
+for (const { name, pts } of MAP.checks) {
   const bad = pts.filter(([x, y, z]) => !standable(x, y, z, null));
   if (bad.length) fail(name + ": cannot stand at " + bad.map((p) => p.join(",")).join(" | "));
   else console.log("PASS  " + name);
@@ -138,7 +131,8 @@ if (slots.length) {
 // cannot be separated by the depth buffer, and the seam flickers violently as
 // the camera moves. Same for their sides.
 const zfight = [];
-const ALL = MAP.boxes.map((b) => ({
+// Tilted boxes are never really flush with anything, whatever their AABB says.
+const ALL = MAP.boxes.filter((b) => !b.rot).map((b) => ({
   b,
   mn: [0, 1, 2].map((i) => b.pos[i] - b.size[i] / 2),
   mx: [0, 1, 2].map((i) => b.pos[i] + b.size[i] / 2),
