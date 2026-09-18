@@ -96,6 +96,20 @@
   async function boot(s, socket, myId, room) {
     s.socket = socket;
 
+    // Which world? The server picks the seed and every aspect of the world comes
+    // from it, so ask before building anything. Asked again until answered: the
+    // game page's socket may not be linked to its player yet.
+    const worldSeed = await new Promise((resolve) => {
+      let timer = 0;
+      const got = ({ seed }) => { clearInterval(timer); socket.off("shooter-world", got); resolve(seed); };
+      socket.on("shooter-world", got);
+      s.cleanups.push(() => { clearInterval(timer); socket.off("shooter-world", got); });
+      const ask = () => socket.emit("shooter-input", { t: "hello" });
+      ask();
+      timer = setInterval(ask, 700);
+    });
+    if (s.disposed) return;
+
     const [THREE, octreeMod, capsuleMod, geoUtils] = await Promise.all([
       import("three"),
       import("three/addons/math/Octree.js"),
@@ -107,7 +121,7 @@
     const { Octree } = octreeMod;
     const { Capsule } = capsuleMod;
     const { mergeGeometries } = geoUtils;
-    const MAP = window.SHOOTER_MAP;
+    const MAP = window.SHOOTER_MAP.forSeed(worldSeed);
 
     // ---------------------------------------------------------------- layout
     // The shell page is built for small canvas games; widen it while we're playing
@@ -214,8 +228,9 @@
     s.on(document, "fullscreenchange", () => setTimeout(resize, 60));
 
     // outdoor daylight: warm sun, cool sky bounce
-    scene.add(new THREE.HemisphereLight(0xdcefff, 0x6a7a5e, 1.0));
-    scene.add(new THREE.AmbientLight(0xffffff, 0.25));
+    const hemi = new THREE.HemisphereLight(0xdcefff, 0x6a7a5e, 1.0);
+    const ambient = new THREE.AmbientLight(0xffffff, 0.25);
+    scene.add(hemi, ambient);
     const sun = new THREE.DirectionalLight(0xfff2d8, 1.45);
     sun.position.set(38, 60, 22);
     scene.add(sun);
@@ -232,7 +247,7 @@
     const collideGroup = new THREE.Group();
     const shotMeshes = [];
     const edgeMat = new THREE.LineBasicMaterial({ color: 0x1b2233, transparent: true, opacity: 0.35 });
-    for (const b of MAP.boxes) {
+    function addBox(b) {
       const geo = new THREE.BoxGeometry(b.size[0], b.size[1], b.size[2]);
       const matOpts = { color: b.color };
       if (b.opacity !== undefined) { matOpts.transparent = true; matOpts.opacity = b.opacity; }
@@ -251,9 +266,10 @@
         scene.add(edges);
       }
     }
+    for (const b of MAP.boxes) addBox(b);
     scene.add(collideGroup);
 
-    const octree = new Octree().fromGraphNode(collideGroup);
+    let octree = new Octree().fromGraphNode(collideGroup);
 
     // shop / room signage, drawn as canvas textures
     for (const sg of MAP.signs || []) {
@@ -303,6 +319,13 @@
     let countdown = 0;
     let buffs = { bd: 0, bs: 0, bp: 0 };
     let speedMul = 1;
+    // mode state
+    let mode = null;
+    let gravity = GRAVITY;
+    let jumpSpeed = JUMP_SPEED;
+    let modeSpeed = 1;
+    let hideTags = false;
+    let headScale = 1;
     let gunPhase = 0;
     let recoil = 0;
     // Aim is held separately from camera.rotation so screen shake can be layered
@@ -383,7 +406,7 @@
       if (keys.KeyS || keys.ArrowDown) velocity.add(forwardVector().multiplyScalar(-accel));
       if (keys.KeyA || keys.ArrowLeft) velocity.add(sideVector().multiplyScalar(-accel));
       if (keys.KeyD || keys.ArrowRight) velocity.add(sideVector().multiplyScalar(accel));
-      if (onFloor && keys.Space && crouch < 0.5) velocity.y = JUMP_SPEED;   // no jumping while ducked
+      if (onFloor && keys.Space && crouch < 0.5) velocity.y = jumpSpeed;    // no jumping while ducked
     }
 
     function collide() {
@@ -399,13 +422,26 @@
     function stepPlayer(dt) {
       let damping = Math.exp(-4 * dt) - 1;
       if (!onFloor) {
-        velocity.y -= GRAVITY * dt;
+        velocity.y -= gravity * dt;
         damping *= 0.12;
       }
       velocity.addScaledVector(velocity, damping);
       stepMove.copy(velocity).multiplyScalar(dt);
       collider.translate(stepMove);
       collide();
+      // Invisible wall at the inner face of the city block. The fronts are solid,
+      // but from a rooftop - or floating in low gravity - you could get on top of
+      // them and walk off the edge of the world.
+      const LIMIT = (MAP.bound || MAP.half) - PLAYER_RADIUS - 0.02;
+      for (const ax of ["x", "z"]) {
+        const v = collider.start[ax];
+        if (v > LIMIT || v < -LIMIT) {
+          const push = Math.max(-LIMIT, Math.min(LIMIT, v)) - v;
+          collider.start[ax] += push;
+          collider.end[ax] += push;
+          velocity[ax] = 0;
+        }
+      }
       camera.position.copy(collider.end);
       // safety net: if anything ever punts us out of the arena, drop back in
       if (Math.abs(camera.position.x) > MAP.half + 5 || Math.abs(camera.position.z) > MAP.half + 5 || camera.position.y < -10) {
@@ -489,8 +525,11 @@
       fill.scale.set(1.26, 0.11, 1);
       scene.add(bg, fill);
 
+      if (headScale !== 1) sizeHead(head);
       return {
         group,
+        head,
+        mat,
         label,
         meshes: [body, head],
         bar: { bg, fill, w: 1.26 },
@@ -527,8 +566,8 @@
         // health bar, offset along the camera's right so it drains screen-left
         const bar = a.bar;
         const visibleToMe = p.alive && hasLineOfSight(a.group.position);
-        a.label.visible = visibleToMe;
-        bar.bg.visible = bar.fill.visible = visibleToMe;
+        a.label.visible = visibleToMe && !hideTags;          // HARDCORE hides tags
+        bar.bg.visible = bar.fill.visible = visibleToMe && !hideTags;
         if (visibleToMe) {
           const frac = Math.max(0, Math.min(1, p.hp / maxHp));
           const bx = a.group.position.x;
@@ -945,6 +984,80 @@
       }
     }
 
+    // ---------------------------------------------------------------- minimap
+    // CoD-style radar: it turns with you and you are the arrow in the middle.
+    // It draws the walls of whichever world was built.
+    const RADAR_RANGE = 34;                                   // metres, centre to rim
+    const toRadar = (list) => list
+      .filter((b) => (b.collide !== undefined ? b.collide : b.solid !== false) && !b.rot &&
+                     b.size[1] >= 1.2 && b.size[0] * b.size[2] >= 0.6 &&
+                     b.pos[1] - b.size[1] / 2 < 6)
+      .map((b) => [b.pos[0], b.pos[2], b.size[0], b.size[2]]);
+    const radarWalls = toRadar(MAP.boxes);
+    let radarFrame = 0;
+
+    function drawMinimap() {
+      if ((radarFrame++ & 1) === 1) return;                   // every other frame is plenty
+      const cv = hud.minimap;
+      const ctx = cv.getContext("2d");
+      const W = cv.width, R = W / 2, k = R / RADAR_RANGE;
+      const px = collider.start.x, pz = collider.start.z;
+
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.clearRect(0, 0, W, W);
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(R, R, R - 1, 0, Math.PI * 2);
+      ctx.clip();
+      ctx.fillStyle = "rgba(8,12,24,0.78)";
+      ctx.fillRect(0, 0, W, W);
+
+      // world -> radar: centre on you, then turn so your facing points up
+      ctx.translate(R, R);
+      ctx.rotate(aimYaw);
+      ctx.scale(k, k);
+      ctx.translate(-px, -pz);
+      ctx.fillStyle = "rgba(170,180,200,0.42)";
+      for (const [x, z, w, d] of radarWalls) {
+        if (Math.abs(x - px) > RADAR_RANGE + 14 || Math.abs(z - pz) > RADAR_RANGE + 14) continue;
+        ctx.fillRect(x - w / 2, z - d / 2, w, d);
+      }
+      ctx.restore();
+
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.fillStyle = "#f7c948";                              // you
+      ctx.beginPath();
+      ctx.moveTo(R, R - 7); ctx.lineTo(R + 5, R + 5); ctx.lineTo(R, R + 2); ctx.lineTo(R - 5, R + 5);
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = "rgba(255,255,255,0.22)";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(R, R, R - 1, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+
+    // ----------------------------------------------------------------- modes
+    function sizeHead(head) {
+      head.scale.setScalar(headScale);
+      head.position.y = 1.36 + 0.29 * (headScale - 1);   // grow upward from the neck
+    }
+
+    function applyMode(m) {
+      mode = m;
+      gravity = GRAVITY;
+      jumpSpeed = JUMP_SPEED;
+      modeSpeed = 1;
+      hideTags = false;
+      headScale = 1;
+      if (m.id === "lowgrav") { gravity = 13; jumpSpeed = 8.6; }     // ~2.8m jumps, slow fall
+      if (m.id === "speed") modeSpeed = 1.6;
+      if (m.id === "hardcore") hideTags = true;
+      if (m.id === "bigheads") headScale = 2.2;
+      for (const [, a] of avatars) sizeHead(a.head);
+      hud.modeIntro(m);
+    }
+
     // ----------------------------------------------------------------- input
     s.on(document, "keydown", (e) => {
       keys[e.code] = true;
@@ -1001,16 +1114,23 @@
     s.sock("shooter-init", (data) => {
       hud.setMap(data.map);
       if (data.maxHp) maxHp = data.maxHp;
+      if (data.mode && (!mode || mode.id !== data.mode.id)) applyMode(data.mode);
+      if (data.seed !== undefined && data.seed !== worldSeed) {
+        // a different world than the one built: start over in the right one
+        window.initShooterClient(socket, myId, room);
+        return;
+      }
+      hud.setWorld(data.seed);
     });
 
     s.sock("shooter-you", ({ uid }) => { myUid = uid; });
 
-    s.sock("shooter-over", ({ table, endsIn }) => {
+    s.sock("shooter-over", ({ table, endsIn, mode: modeName }) => {
       matchOver = true;
       firing = false;
       aiming = false;
       if (document.pointerLockElement) document.exitPointerLock();
-      hud.endScreen(table, myUid, endsIn);
+      hud.endScreen(table, myUid, endsIn, modeName);
     });
 
     s.sock("shooter-spawn", ({ pos, hp: newHp }) => {
@@ -1050,7 +1170,7 @@
         }
         respawnIn = me.rs || 0;
         buffs = { bd: me.bd || 0, bs: me.bs || 0, bp: me.bp || 0 };
-        speedMul = buffs.bs > 0 ? SPEED_BUFF : 1;
+        speedMul = (buffs.bs > 0 ? SPEED_BUFF : 1) * modeSpeed;
         const nowOkr = !!me.ok;
         if (nowOkr && !inOkr) {
           okrPulse = 1;
@@ -1101,8 +1221,8 @@
       hud.toast(style ? style.label : "PICKED UP", style ? "#" + style.color.toString(16).padStart(6, "0") : "#f7c948");
     });
 
-    s.sock("shooter-kill", ({ killer, victim, victimId, victimUid, headshot }) => {
-      hud.addFeed(killer, victim, headshot);
+    s.sock("shooter-kill", ({ killer, victim, victimId, victimUid, headshot, weapon }) => {
+      hud.addFeed(killer, victim, headshot, weapon);
       const wasMe = victimUid ? victimUid === myUid : victimId === s.socket.id;
       if (wasMe) deathMessage = "Fragged by " + killer;
     });
@@ -1232,6 +1352,7 @@
       updateSmoke(dt);
       if (firing) fire();
       updateEffects();
+      drawMinimap();
       updateGun(dt);
       renderer.clear();
       renderer.render(scene, camera);
@@ -1318,7 +1439,18 @@
     const healEl = el("position:absolute;bottom:72px;left:14px;font-size:0.95rem;font-weight:900;color:#4ecca3;opacity:0;transition:opacity 200ms,transform 500ms;text-shadow:0 2px 6px rgba(0,0,0,0.9);");
     const timer = el("position:absolute;top:10px;left:50%;transform:translateX(-50%);font-weight:900;font-size:1.3rem;letter-spacing:1px;text-shadow:0 2px 6px rgba(0,0,0,0.8);");
     const board = el("position:absolute;top:10px;right:12px;font-size:0.8rem;font-weight:700;text-align:right;text-shadow:0 2px 6px rgba(0,0,0,0.8);line-height:1.5;");
-    const feed = el("position:absolute;top:10px;left:12px;font-size:0.78rem;font-weight:700;text-shadow:0 2px 6px rgba(0,0,0,0.8);line-height:1.6;");
+    // radar sits where CoD puts it, top left; the kill feed moves beneath it
+    const minimap = document.createElement("canvas");
+    minimap.width = 150;
+    minimap.height = 150;
+    minimap.style.cssText = "position:absolute;top:10px;left:12px;width:150px;height:150px;";
+    layer.appendChild(minimap);
+
+    const modeChip = el("position:absolute;top:40px;left:50%;transform:translateX(-50%);font-size:0.68rem;" +
+      "font-weight:900;letter-spacing:3px;color:#f7c948;text-shadow:0 2px 6px rgba(0,0,0,0.9);");
+    const modeIntroEl = el("position:absolute;top:24%;left:50%;transform:translateX(-50%) scale(0.85);opacity:0;" +
+      "transition:opacity 300ms,transform 300ms;text-align:center;white-space:nowrap;");
+    const feed = el("position:absolute;top:172px;left:12px;font-size:0.78rem;font-weight:700;text-shadow:0 2px 6px rgba(0,0,0,0.8);line-height:1.6;");
     const mapName = el("position:absolute;bottom:10px;left:50%;transform:translateX(-50%);font-size:0.7rem;color:#8892a4;letter-spacing:2px;text-transform:uppercase;");
 
     const healthWrap = el("position:absolute;bottom:12px;left:14px;width:190px;");
@@ -1367,6 +1499,7 @@
     let dmgTimer = null;
     let toastTimer = null;
     let okrTimer = null;
+    let introTimer = null;
     let healTimer = null;
     let endTimer = null;
     const feedItems = [];
@@ -1374,17 +1507,39 @@
 
     return {
       layer,
+      minimap,
       lockOverlay,
+      modeIntro(m) {
+        modeChip.textContent = m.name;
+        modeIntroEl.innerHTML =
+          '<div style="font-size:0.75rem;letter-spacing:6px;color:#8892a4;font-weight:800">THIS ROUND</div>' +
+          '<div style="margin:0.2rem 0;font-size:2.4rem;font-weight:900;letter-spacing:4px;color:#f7c948;' +
+            'text-shadow:0 0 22px rgba(247,201,72,0.45),0 3px 12px rgba(0,0,0,0.9)">' + esc(m.name) + '</div>' +
+          '<div style="font-size:1rem;font-weight:800;color:#e8ecf3;text-shadow:0 2px 8px rgba(0,0,0,0.9)">' +
+            esc(m.blurb) + '</div>';
+        modeIntroEl.style.opacity = "1";
+        modeIntroEl.style.transform = "translateX(-50%) scale(1)";
+        clearTimeout(introTimer);
+        introTimer = setTimeout(() => {
+          modeIntroEl.style.opacity = "0";
+          modeIntroEl.style.transform = "translateX(-50%) scale(0.85)";
+        }, 5200);
+      },
       stopTimers() {
         clearInterval(endTimer);
         clearTimeout(okrTimer);
+        clearTimeout(introTimer);
         clearTimeout(healTimer);
         clearTimeout(toastTimer);
         clearTimeout(hitTimer);
         clearTimeout(dmgTimer);
       },
       setLocked(locked) { lockOverlay.style.display = locked ? "none" : "flex"; },
-      setMap(name) { mapName.textContent = name || ""; },
+      setMap(name) { mapName.dataset.name = name || ""; mapName.textContent = name || ""; },
+      setWorld(seed) {
+        const base = mapName.dataset.name || "";
+        mapName.textContent = seed === null || seed === undefined ? base + " \u00b7 CLASSIC" : base + " \u00b7 WORLD " + seed;
+      },
       markHit(head) {
         hitMarker.style.opacity = "1";
         hitMarker.querySelectorAll("div").forEach((d) => { d.style.background = head ? "#f7c948" : "#fff"; });
@@ -1401,7 +1556,7 @@
           healEl.style.transform = "translateY(0)";
         }, 500);
       },
-      endScreen(table, myUid, endsIn) {
+      endScreen(table, myUid, endsIn, modeName) {
         const rows = (table || []).map((p, i) => {
           const me = myUid && p.uid === myUid;
           const kd = (p.deaths ? p.kills / p.deaths : p.kills).toFixed(2);
@@ -1419,7 +1574,8 @@
         const winner = table && table[0] ? table[0].name : "";
         endBoard.innerHTML =
           '<div style="text-align:center;max-width:92%;">' +
-          '<div style="font-size:0.8rem;letter-spacing:5px;color:#8892a4;font-weight:800">MATCH OVER</div>' +
+          '<div style="font-size:0.8rem;letter-spacing:5px;color:#8892a4;font-weight:800">MATCH OVER' +
+            (modeName ? ' \u00b7 ' + esc(modeName) : '') + '</div>' +
           '<div style="margin:0.35rem 0 1rem;font-size:1.7rem;font-weight:900;color:#f7c948;' +
             'text-shadow:0 0 18px rgba(247,201,72,0.35)">' + esc(winner) + ' wins</div>' +
           '<table style="margin:0 auto;border-collapse:collapse;font-size:0.95rem">' +
@@ -1495,10 +1651,11 @@
         if (feedItems.length > 5) feedItems.pop();
         feed.innerHTML = feedItems.join("<br>");
       },
-      addFeed(killer, victim, headshot) {
+      addFeed(killer, victim, headshot, weapon) {
+        const icon = headshot ? '<span style="color:#f7c948">✷</span>' : '→';
         feedItems.unshift(
           '<span style="color:#4ecca3">' + esc(killer) + '</span> ' +
-          (headshot ? '<span style="color:#f7c948">✷</span>' : '→') +
+          icon +
           ' <span style="color:#e94560">' + esc(victim) + '</span>'
         );
         if (feedItems.length > 5) feedItems.pop();

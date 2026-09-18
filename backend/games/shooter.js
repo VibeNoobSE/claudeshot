@@ -33,16 +33,51 @@ const OKR_REGEN = 4;
 const TARGET_RESPAWN_MS = 30000;   // a smashed sign is re-hung after 30s
 const END_SCREEN_MS = 9000;        // the final board stays up in-game before the platform takes over
 
+// ---- modes: the host picks one in the lobby, or lets each round roll ------
+// Server-side effects live here; the client applies the movement and visual
+// ones (gravity, speed, big heads, hidden tags) from the same id.
+const MODES = [
+  { id: "standard",   name: "STANDARD",     blurb: "No tricks. Just aim." },
+  { id: "hardcore",   name: "HARDCORE",     blurb: "60 health. No name tags. Every shot counts.", maxHp: 60 },
+  { id: "oneshot",    name: "ONE SHOT",     blurb: "Any hit kills. Whoever shoots first wins.", oneShot: true },
+  { id: "headhunter", name: "HEADHUNTER",   blurb: "Body shots barely scratch. Headshots drop anyone.", bodyMul: 0.35, headMul: 4 },
+  { id: "lowgrav",    name: "LOW GRAVITY",  blurb: "Everyone floats. Take the high ground." },
+  { id: "vampire",    name: "VAMPIRE",      blurb: "Every hit heals you. Kills heal more.", lifesteal: 0.5, killHeal: 50 },
+  { id: "speed",      name: "SPEED DEMONS", blurb: "Everyone moves 60% faster." },
+  { id: "bigheads",   name: "BIG HEADS",    blurb: "Heads are huge. Aim high." },
+  { id: "surge",      name: "POWER SURGE",  blurb: "Pickups respawn in seconds. Buffs last twice as long.", pickupMul: 0.2, buffMul: 2 },
+];
+
+// The mode the host chose, or for "random" a different twist each round.
+function pickMode(room) {
+  const wanted = (room.settings && room.settings.mode) || "standard";
+  if (wanted !== "random") return MODES.find((m) => m.id === wanted) || MODES[0];
+  const pool = MODES.filter((m) => m.id !== "standard" && m.id !== room.lastShooterMode);
+  const mode = pool[Math.floor(Math.random() * pool.length)];
+  room.lastShooterMode = mode.id;
+  return mode;
+}
+
+// "classic" is the hand-built map. Otherwise a seed generates the whole world: the
+// host's seed if they typed one (so a good world can be replayed), else a new
+// one every round.
+function pickSeed(room) {
+  const st = room.settings || {};
+  if (st.world === "classic") return null;
+  const typed = String(st.seed == null ? "" : st.seed).trim();
+  if (/^\d{1,9}$/.test(typed)) return Number(typed);
+  return Math.floor(Math.random() * 1000000);
+}
+
 const COLORS = ["#f7c948", "#e94560", "#4ecca3", "#5dade2", "#af7ac5", "#ff8c42", "#42f5b0", "#f542e0"];
 
-// Pre-compute AABB min/max for line-of-sight tests. Decorative boxes
-// (foliage, glass, ground decals) are marked solid:false and never block a shot.
-const AABBS = MAP.boxes.filter((b) => b.solid !== false).map((b) => ({
+// AABB min/max for line-of-sight tests. Decorative boxes (foliage, ground
+// decals) are marked solid:false and never block a shot. Built per world, since
+// a generated world adds its own cover.
+const toAabbs = (boxes) => boxes.filter((b) => b.solid !== false).map((b) => ({
   min: [b.pos[0] - b.size[0] / 2 + BOX_SHRINK, b.pos[1] - b.size[1] / 2 + BOX_SHRINK, b.pos[2] - b.size[2] / 2 + BOX_SHRINK],
   max: [b.pos[0] + b.size[0] / 2 - BOX_SHRINK, b.pos[1] + b.size[1] / 2 - BOX_SHRINK, b.pos[2] + b.size[2] / 2 - BOX_SHRINK],
 }));
-
-const OKR_ZONE = (MAP.zones || []).find((z) => z.id === "okr") || null;
 
 function inZone(pos, z) {
   return pos[0] >= z.min[0] && pos[0] <= z.max[0] &&
@@ -75,8 +110,8 @@ function segmentHitsBox(from, to, box) {
   return true;
 }
 
-function blocked(from, to) {
-  for (const box of AABBS) if (segmentHitsBox(from, to, box)) return true;
+function blocked(from, to, aabbs) {
+  for (const box of aabbs) if (segmentHitsBox(from, to, box)) return true;
   return false;
 }
 
@@ -91,6 +126,33 @@ class ShooterGame {
     this.timer = null;
     this.startedAt = 0;
     this.ended = false;
+    this.mode = pickMode(room);
+    this.seed = pickSeed(room);
+    this.map = MAP.forSeed(this.seed);
+    this.aabbs = toAabbs(this.map.boxes);
+    // the OKR room moves with the world, so its zone is per world too
+    this.okrZone = (this.map.zones || []).find((z) => z.id === "okr") || null;
+    this.maxHp = this.mode.maxHp || MAX_HP;
+    this.bodyMul = this.mode.bodyMul || 1;
+    this.headMul = this.mode.headMul || 1;
+    this.lifesteal = this.mode.lifesteal || 0;
+    this.killHeal = this.mode.killHeal || 0;
+    this.buffMs = BUFF_MS * (this.mode.buffMul || 1);
+    this.pickupRespawnMs = PICKUP_RESPAWN_MS * (this.mode.pickupMul || 1);
+  }
+
+  // Everything a client needs before it can play. Sent on "ready" as well as at
+  // start: the start broadcast only reaches the lobby sockets, which are about to
+  // be replaced by the game page, so on its own it never arrived.
+  initPayload() {
+    return {
+      map: MAP.name,
+      roundMs: ROUND_MS,
+      countdownMs: COUNTDOWN_MS,
+      maxHp: this.maxHp,
+      mode: { id: this.mode.id, name: this.mode.name, blurb: this.mode.blurb },
+      seed: this.seed,
+    };
   }
 
   start() {
@@ -103,7 +165,7 @@ class ShooterGame {
         uid: "u" + (i + 1),
         name: p.name,
         color: COLORS[i % COLORS.length],
-        hp: MAX_HP,
+        hp: this.maxHp,
         alive: true,
         kills: 0,
         deaths: 0,
@@ -126,7 +188,7 @@ class ShooterGame {
     // on opposite sides of the block. Dealing randomly from the whole list put
     // people in the middle of the map, sometimes inside a building.
     const count = this.players.size;
-    const all = MAP.spawns.map((sp, idx) => ({ sp, idx, r: Math.hypot(sp[0], sp[2]) }));
+    const all = this.map.spawns.map((sp, idx) => ({ sp, idx, r: Math.hypot(sp[0], sp[2]) }));
     const corners = all.filter((c) => Math.abs(c.sp[0]) > 30 && Math.abs(c.sp[2]) > 30);
     const outer = all.filter((c) => c.r > 26);
     const pool = corners.length >= count ? corners : (outer.length >= count ? outer : all);
@@ -154,7 +216,7 @@ class ShooterGame {
     }
 
     // Shootable signage. Smashing one scores, and it goes back up after a while.
-    for (const m of MAP.models || []) {
+    for (const m of this.map.models || []) {
       if (!m.target) continue;
       this.targets.set(m.target.id, {
         id: m.target.id,
@@ -167,23 +229,16 @@ class ShooterGame {
       });
     }
 
-    for (const pk of MAP.pickups) {
+    for (const pk of this.map.pickups) {
       this.pickups.set(pk.id, { id: pk.id, type: pk.type, pos: pk.pos, readyAt: 0 });
     }
 
     this.startedAt = Date.now();
-    this.io.to(this.room.code).emit("shooter-init", {
-      map: MAP.name,
-      roundMs: ROUND_MS,
-      countdownMs: COUNTDOWN_MS,
-      maxHp: MAX_HP,
-      you: null,
-      players: [...this.players.values()].map((p) => ({ id: p.id, name: p.name, color: p.color })),
-    });
+    this.io.to(this.room.code).emit("shooter-init", this.initPayload());
 
     for (const p of this.players.values()) {
       this.io.to(p.id).emit("shooter-you", { uid: p.uid });
-      this.io.to(p.id).emit("shooter-spawn", { pos: p.pos, hp: MAX_HP });
+      this.io.to(p.id).emit("shooter-spawn", { pos: p.pos, hp: this.maxHp });
     }
 
     this.timer = setInterval(() => this.tick(), TICK_MS);
@@ -242,8 +297,15 @@ class ShooterGame {
     // The client loads three.js from a CDN before it can register socket
     // handlers, so any spawn we pushed at game start or on reconnect arrived
     // before anything was listening. It asks for its spawn when actually ready.
+    // The whole world comes from the seed, so the client asks which one before it
+    // builds anything. Nothing else happens until it is built and sends "ready".
+    if (data.t === "hello") {
+      this.io.to(p.id).emit("shooter-world", { seed: this.seed });
+      return;
+    }
     if (data.t === "ready") {
       p.spawnAcked = true;
+      this.io.to(p.id).emit("shooter-init", this.initPayload());
       this.io.to(p.id).emit("shooter-you", { uid: p.uid });
       this.io.to(p.id).emit("shooter-spawn", { pos: p.pos, hp: p.hp });
       return;
@@ -263,17 +325,17 @@ class ShooterGame {
     if (dist(player.pos, pk.pos) > PICKUP_RADIUS) return; // claimed from too far away
 
     if (pk.type === "health") {
-      if (player.hp >= MAX_HP) return;                  // no point burning it
-      player.hp = Math.min(MAX_HP, player.hp + HEALTH_PICKUP);
+      if (player.hp >= this.maxHp) return;              // no point burning it
+      player.hp = Math.min(this.maxHp, player.hp + HEALTH_PICKUP);
     } else if (pk.type === "damage") {
-      player.damageUntil = now + BUFF_MS;
+      player.damageUntil = now + this.buffMs;
     } else if (pk.type === "speed") {
-      player.speedUntil = now + BUFF_MS;
+      player.speedUntil = now + this.buffMs;
     } else if (pk.type === "shield") {
-      player.shieldUntil = now + BUFF_MS;
+      player.shieldUntil = now + this.buffMs;
     }
 
-    pk.readyAt = now + PICKUP_RESPAWN_MS;
+    pk.readyAt = now + this.pickupRespawnMs;
     this.io.to(this.room.code).emit("shooter-pickup", {
       id: pk.id,
       type: pk.type,
@@ -306,16 +368,29 @@ class ShooterGame {
     const eye = [shooter.pos[0], shooter.pos[1] + eyeH, shooter.pos[2]];
     const chest = [victim.pos[0], victim.pos[1] + chestH, victim.pos[2]];
     const head = [victim.pos[0], victim.pos[1] + headH, victim.pos[2]];
-    if (blocked(eye, chest) && blocked(eye, head)) return;
+    if (blocked(eye, chest, this.aabbs) && blocked(eye, head, this.aabbs)) return;
 
-    let damage = data.part === "head" ? HEAD_DAMAGE : BODY_DAMAGE;
+    let damage = data.part === "head" ? HEAD_DAMAGE * this.headMul : BODY_DAMAGE * this.bodyMul;
     if (now < shooter.damageUntil) damage *= DAMAGE_BUFF;
-    if (now < victim.shieldUntil) damage *= SHIELD_FACTOR;
-    victim.hp -= damage;
+    if (this.mode.oneShot) damage = victim.hp * 2 + 999;   // survives a shield halving it
+    this.damagePlayer(shooter, victim, damage, { headshot: data.part === "head" });
+  }
 
-    this.io.to(victim.id).emit("shooter-damaged", { from: shooter.name, hp: Math.max(0, victim.hp) });
+  // One path for all damage, so shields, lifesteal and kill credit apply the
+  // same wherever the damage came from.
+  damagePlayer(attacker, victim, amount, opts = {}) {
+    if (!victim.alive) return;
+    if (Date.now() < victim.shieldUntil) amount *= SHIELD_FACTOR;
+    amount = Math.max(1, Math.round(amount));          // keep health a whole number
+    const dealt = Math.min(victim.hp, amount);
+    victim.hp -= amount;
 
-    if (victim.hp <= 0) this.killPlayer(shooter, victim, data.part === "head");
+    if (this.lifesteal && attacker.alive && dealt > 0) {
+      attacker.hp = Math.min(this.maxHp, attacker.hp + Math.round(dealt * this.lifesteal));
+    }
+    this.io.to(victim.id).emit("shooter-damaged", { from: attacker.name, hp: Math.max(0, victim.hp) });
+
+    if (victim.hp <= 0) this.killPlayer(attacker, victim, !!opts.headshot, opts.weapon);
   }
 
   resolveTarget(shooter, data) {
@@ -334,7 +409,7 @@ class ShooterGame {
     const dx = eye[0] - t.pos[0], dy = eye[1] - t.pos[1], dz = eye[2] - t.pos[2];
     const len = Math.sqrt(dx * dx + dy * dy + dz * dz) || 1;
     const face = [t.pos[0] + (dx / len) * 0.7, t.pos[1] + (dy / len) * 0.7, t.pos[2] + (dz / len) * 0.7];
-    if (blocked(eye, face)) return;
+    if (blocked(eye, face, this.aabbs)) return;
 
     let damage = BODY_DAMAGE;
     if (now < shooter.damageUntil) damage *= DAMAGE_BUFF;
@@ -351,12 +426,13 @@ class ShooterGame {
     }
   }
 
-  killPlayer(killer, victim, headshot) {
+  killPlayer(killer, victim, headshot, weapon) {
     victim.hp = 0;
     victim.alive = false;
     victim.deaths++;
     victim.respawnAt = Date.now() + RESPAWN_MS;
     killer.kills++;
+    if (this.killHeal && killer.alive) killer.hp = Math.min(this.maxHp, killer.hp + this.killHeal);
 
     this.io.to(this.room.code).emit("shooter-kill", {
       killer: killer.name,
@@ -366,6 +442,7 @@ class ShooterGame {
       victimId: victim.id,
       victimUid: victim.uid,
       headshot: !!headshot,
+      weapon: weapon || "rifle",
     });
   }
 
@@ -374,25 +451,25 @@ class ShooterGame {
     // at random from the safest half. Always taking the single furthest spawn is
     // deterministic, which is why players kept reappearing in the same place.
     const others = [...this.players.values()].filter((o) => o !== p && o.alive);
-    const scored = MAP.spawns
+    const scored = this.map.spawns
       .map((sp, idx) => {
         let nearest = Infinity;
         for (const o of others) nearest = Math.min(nearest, dist(sp, o.pos));
         return { sp, idx, score: others.length ? nearest : 0 };
       })
-      .filter((c) => c.idx !== p.lastSpawn || MAP.spawns.length < 3)
+      .filter((c) => c.idx !== p.lastSpawn || this.map.spawns.length < 3)
       .sort((a, b) => b.score - a.score);
 
     const pool = others.length ? Math.max(3, Math.ceil(scored.length / 2)) : scored.length;
     const pick = scored[Math.floor(Math.random() * Math.min(pool, scored.length))];
     p.lastSpawn = pick.idx;
     p.pos = pick.sp.slice();
-    p.hp = MAX_HP;
+    p.hp = this.maxHp;
     p.alive = true;
     p.damageUntil = 0;   // buffs die with you
     p.speedUntil = 0;
     p.shieldUntil = 0;
-    this.io.to(p.id).emit("shooter-spawn", { pos: p.pos, hp: MAX_HP });
+    this.io.to(p.id).emit("shooter-spawn", { pos: p.pos, hp: this.maxHp });
   }
 
   tick() {
@@ -410,9 +487,9 @@ class ShooterGame {
       if (!p.alive && now >= p.respawnAt) { this.respawn(p); continue; }
       if (!p.alive) continue;
       // OKR room: standing inside heals you steadily (the client tightens your aim)
-      p.okr = !!(OKR_ZONE && inZone(p.pos, OKR_ZONE));
-      if (p.okr && p.hp < MAX_HP && now - p.lastRegen >= OKR_REGEN_MS) {
-        p.hp = Math.min(MAX_HP, p.hp + OKR_REGEN);
+      p.okr = !!(this.okrZone && inZone(p.pos, this.okrZone));
+      if (p.okr && p.hp < this.maxHp && now - p.lastRegen >= OKR_REGEN_MS) {
+        p.hp = Math.min(this.maxHp, p.hp + OKR_REGEN);
         p.lastRegen = now;
       }
     }
@@ -461,7 +538,7 @@ class ShooterGame {
       }))
       .sort((a, b) => b.kills - a.kills || a.deaths - b.deaths);
 
-    this.io.to(this.room.code).emit("shooter-over", { table, endsIn: END_SCREEN_MS });
+    this.io.to(this.room.code).emit("shooter-over", { table, endsIn: END_SCREEN_MS, mode: this.mode.name });
 
     // Hold the final board inside the game before handing back to the platform,
     // which is what sends everyone to the results page.
