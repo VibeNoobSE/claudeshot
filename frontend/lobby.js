@@ -31,7 +31,7 @@ socket.on("game-started", () => {
   window.location.href = "game.html";
 });
 
-const GAME_NAMES = { snake: "🐍 Snake", hungry: "🍗 Hungry Lasse", shooter: "🔫 Shooter" };
+const GAME_NAMES = { snake: "🐍 Snake", hungry: "🍗 Hungry Lasse", shooter: "🔫 Shooter", eye: "👁️ Eye of Ark" };
 
 let gameSettings = {};
 
@@ -40,7 +40,7 @@ function renderGameSettings(game) {
   container.innerHTML = "";
   gameSettings = {};
 
-  if (game === "snake") {
+  if (game === "snake" || game === "eye") {
     gameSettings.rounds = 1;
     container.innerHTML = `
       <div class="round-picker">
@@ -147,6 +147,8 @@ function renderRoom(room) {
     list.appendChild(li);
   });
 
+  renderTeamPicker(room.game);
+
   const isHost = room.host === socket.id;
   document.getElementById("host-controls").classList.toggle("hidden", !isHost);
   document.getElementById("guest-msg").classList.toggle("hidden", isHost);
@@ -161,6 +163,53 @@ function renderRoom(room) {
     startBtn.disabled = !canStart;
     startBtn.textContent = canStart ? "Start Game" : "Waiting for players...";
   }
+}
+
+// ---- Eye of Ark: every player picks a side before the game loads ----------
+// Stored where the game page reads it, so the soldier is right from the very
+// first frame of the intro.
+const TEAMS = [
+  { id: "bookis", logo: "assets/bookis-logo.png", label: "Bookis soldier", color: "#dc2359" },
+  { id: "norli",  logo: "assets/norli.svg",       label: "Norli soldier",  color: "#003190" },
+];
+
+function savedTeam() {
+  try { return localStorage.getItem("eyeTeam") === "norli" ? "norli" : "bookis"; } catch (e) { return "bookis"; }
+}
+
+function renderTeamPicker(game) {
+  const box = document.getElementById("team-picker");
+  if (!box) return;
+  box.classList.toggle("hidden", game !== "eye");
+  if (game !== "eye" || box.innerHTML !== "") return;
+
+  box.innerHTML = `
+    <p class="label" style="margin:0.9rem 0 0.4rem;">Choose your soldier</p>
+    <div style="display:flex;gap:0.6rem;margin-bottom:1rem;">
+      ${TEAMS.map(t => `
+        <button class="team-btn" data-team="${t.id}" style="flex:1;display:flex;flex-direction:column;align-items:center;gap:0.45rem;
+          padding:0.8rem 0.5rem;border-radius:10px;cursor:pointer;font:inherit;font-weight:800;font-size:0.8rem;
+          letter-spacing:0.5px;text-transform:uppercase;background:#fff;color:${t.color};border:3px solid transparent;
+          transition:transform 0.12s,border-color 0.12s,opacity 0.12s;">
+          <img src="${t.logo}" alt="" style="height:26px;max-width:100%;object-fit:contain;">
+          ${t.label}
+        </button>`).join("")}
+    </div>`;
+
+  const paint = () => {
+    const team = savedTeam();
+    box.querySelectorAll(".team-btn").forEach(b => {
+      const on = b.dataset.team === team;
+      b.style.borderColor = on ? "#f7c948" : "transparent";
+      b.style.opacity = on ? "1" : "0.5";
+      b.style.transform = on ? "scale(1.03)" : "scale(1)";
+    });
+  };
+  box.querySelectorAll(".team-btn").forEach(b => b.addEventListener("click", () => {
+    try { localStorage.setItem("eyeTeam", b.dataset.team); } catch (e) { /* private mode: default team */ }
+    paint();
+  }));
+  paint();
 }
 
 // ---- invite link ---------------------------------------------------------
