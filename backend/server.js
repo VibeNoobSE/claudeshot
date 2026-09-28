@@ -7,11 +7,13 @@ const { createRoom, joinRoom, rejoinRoom, leaveRoom, getRooms } = require("./roo
 const SnakeGame = require("./games/snake");
 const HungryGame = require("./games/hungry");
 const ShooterGame = require("./games/shooter");
+const EyeGame = require("./games/eye");
 
 const GAME_REGISTRY = {
   snake: { Game: SnakeGame, maxPlayers: 8 },
   hungry: { Game: HungryGame, maxPlayers: 8 },
   shooter: { Game: ShooterGame, maxPlayers: 8 },
+  eye: { Game: EyeGame, maxPlayers: 8 },
 };
 
 const app = express();
@@ -41,6 +43,15 @@ function startGameRound(r) {
   const round = activeRounds[r.code];
   const registry = GAME_REGISTRY[r.game];
   if (!registry) return;
+
+  // A host who reloads back to the lobby and starts again leaves the previous
+  // game running. Two games broadcasting to one room made clients flip between
+  // both every tick, so the old one is always stopped first.
+  const previous = activeGames[r.code];
+  if (previous) {
+    previous.stop();
+    delete activeGames[r.code];
+  }
 
   r.gameStarted = true;
   io.to(r.code).emit("game-started", { game: r.game, round: round.current, totalRounds: round.total });
@@ -184,6 +195,12 @@ io.on("connection", (socket) => {
   socket.on("shooter-input", (data) => {
     for (const [, game] of Object.entries(activeGames)) {
       game.setInput(socket.id, data);
+    }
+  });
+
+  socket.on("eye-input", (data) => {
+    for (const [, game] of Object.entries(activeGames)) {
+      if (game instanceof EyeGame) game.setInput(socket.id, data);
     }
   });
 
