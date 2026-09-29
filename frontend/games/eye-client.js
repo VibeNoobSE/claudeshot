@@ -78,6 +78,12 @@
 
   let session = null;
 
+  // Sound comes from the shared party kit (party-audio.js) when it is loaded;
+  // every call is safe without it.
+  function sfx(name, opts) {
+    try { if (window.PARTY_AUDIO) window.PARTY_AUDIO.play(name, opts); } catch (e) { /* stay silent */ }
+  }
+
   window.initEyeClient = function (socket, myId, room) {
     if (session) session.dispose();
     session = createSession();
@@ -792,6 +798,7 @@
     const collider = new Capsule(new THREE.Vector3(0, R, 0), new THREE.Vector3(0, H - R, 0), R);
     const velocity = new THREE.Vector3();
     let onFloor = false;
+    let lastStepAt = 0;
     let lastGroundAt = 0;
     let jumpQueuedAt = -1e9;
     let faceYaw = 0;
@@ -1289,6 +1296,8 @@
           stun = STUN_S;
           shake = Math.max(shake, 0.35);
           stats.hazardHits++;
+          sfx(h.kind === "boulders" ? "thud" : "knock");
+          if (h.kind === "boulders") sfx("knock", { volume: 0.7 });
           hud.toast(h.kind === "boulders" ? "BONK! BOULDER" : h.kind === "pendulum" ? "WHACKED!" : "SWEPT!", "#ffd23f");
         }
       }
@@ -1307,6 +1316,7 @@
           diveBumped = true;
           const vl = Math.hypot(velocity.x, velocity.z) || 1;
           s.socket.emit("eye-input", { t: "bump", victim: uid, dir: [velocity.x / vl, velocity.z / vl] });
+          sfx("bump");
         }
         if (d >= BEAN_GAP) continue;
         if (d < 1e-3) { dx = Math.random() - 0.5; dz = Math.random() - 0.5; d = Math.hypot(dx, dz); }
@@ -1405,6 +1415,7 @@
       if (canJump && now - jumpQueuedAt < JUMP_BUFFER_MS && (onFloor || now - lastGroundAt < COYOTE_MS)) {
         velocity.y = JUMP_SPEED;
         onFloor = false;
+        sfx("jump");
         lastGroundAt = -1e9;
         jumpQueuedAt = -1e9;
       }
@@ -1413,10 +1424,13 @@
       if (velocity.y < -40) velocity.y = -40;
 
       const wasOnFloor = onFloor;
+      const vyBefore = velocity.y;
       collider.translate(tmpA.copy(velocity).multiplyScalar(dt));
       onFloor = false;
       resolveStatic();
       if (!onFloor && wasOnFloor && velocity.y <= 0.5) snapDown();
+      if (onFloor && !wasOnFloor && vyBefore < -3) sfx("land", { volume: Math.min(1, -vyBefore / 16) });
+      if (onFloor && Math.hypot(velocity.x, velocity.z) > 2.5 && now - lastStepAt > 290) { lastStepAt = now; sfx("step"); }
       if (!DEBUG.noHazards) collideHazards();
       collideBeans();
       collideCages();
@@ -1464,6 +1478,8 @@
       shake = 0.6;
       stats.gazeHits++;
       hud.gazeHit();
+      sfx("zap");
+      sfx("knock", { volume: 0.8 });
     }
 
     // ------------------------------------------------------------- camera
@@ -1686,11 +1702,11 @@
 
     // one-shot moments on the intro timeline (lightning, cuts, the Eye flaring)
     const INTRO_EVENTS = [
-      { t: IT(-19000), fn: () => { art.flash?.("lightning"); introShake = 0.7; hud.cut("#fff1d6"); } },
-      { t: IT(-16400), fn: () => { art.flash?.("lightning"); hud.cut("#ffffff"); } },
-      { t: IT(-13700), fn: () => { art.flash?.("eye"); introShake = 0.35; } },
+      { t: IT(-19000), fn: () => { art.flash?.("lightning"); introShake = 0.7; hud.cut("#fff1d6"); sfx("thud", { pitch: 0.5 }); sfx("crack", { volume: 0.6, pitch: 0.6 }); } },
+      { t: IT(-16400), fn: () => { art.flash?.("lightning"); hud.cut("#ffffff"); sfx("thud", { pitch: 0.55, volume: 0.8 }); } },
+      { t: IT(-13700), fn: () => { art.flash?.("eye"); introShake = 0.35; sfx("zap", { volume: 0.6, pitch: 0.7 }); } },
       { t: IT(-8200), fn: () => { hud.cut("#ffd7a8"); } },
-      { t: DEMO.hitAt, fn: () => { art.flash?.("eye"); introShake = 0.5; hud.cut("#ff6a3d"); } },
+      { t: DEMO.hitAt, fn: () => { art.flash?.("eye"); introShake = 0.5; hud.cut("#ff6a3d"); sfx("zap"); sfx("out", { volume: 0.7 }); } },
       { t: IT(-3000), fn: () => { hud.cut("#ffffff"); } },
       { t: 0, fn: () => { shake = Math.max(shake, 0.35); } },
     ];
@@ -1755,6 +1771,7 @@
       velocity.z = Math.cos(faceYaw) * DIVE_SPEED;
       velocity.y = onFloor ? DIVE_HOP : Math.max(velocity.y, 2);
       onFloor = false;
+      sfx("dive");
     }
     function setGrab(on) {
       if (on === grabHeld) return;
@@ -1782,6 +1799,7 @@
       if (best) {
         grabPending = true;
         s.socket.emit("eye-input", { t: "grab", victim: best });
+        sfx("grab");
       }
     }
 
@@ -1802,7 +1820,36 @@
     }
     function pressJump() {
       jumpQueuedAt = nowMs();
-      if (gb) { s.socket.emit("eye-input", { t: "struggle" }); hud.struggle(); }
+      if (gb) { s.socket.emit("eye-input", { t: "struggle" }); hud.struggle(); sfx("struggle"); }
+    }
+
+    // Browsers only allow sound after a key press or click; M mutes.
+    const audio = window.PARTY_AUDIO;
+    const unlockAudio = () => { try { audio && audio.unlock(); } catch (e) { /* ignore */ } };
+    s.on(document, "pointerdown", unlockAudio);
+    s.on(document, "keydown", (e) => {
+      unlockAudio();
+      if (e.code === "KeyM" && audio) {
+        const muted = audio.toggleMute();
+        hud.toast(muted ? "SOUND OFF" : "SOUND ON", "#fff6fb");
+      }
+    });
+    // The Eye's gaze growls louder as the beam swings towards you.
+    let rumble = null;
+    try { rumble = audio ? audio.loop("rumble", { volume: 0 }) : null; } catch (e) { rumble = null; }
+    s.cleanups.push(() => { try { rumble && rumble.stop(); } catch (e) { /* ignore */ } });
+    function updateSound(rt) {
+      if (!audio) return;
+      try { audio.setListener(camera.position, camYaw); } catch (e) { /* ignore */ }
+      if (!rumble) return;
+      const g = course.gazeAt(rt);
+      let vol = 0;
+      if (rt > 0 && !matchOver) {
+        const f = feet();
+        const d = Math.abs(course.angleDiff(course.azimuth(f[0], f[2]), g.phi));
+        vol = g.active ? 0.15 + 0.65 * Math.max(0, 1 - d / 1.3) : 0.08 * g.intensity;
+      }
+      rumble.set({ volume: vol });
     }
 
     s.on(document, "keydown", (e) => {
@@ -1972,7 +2019,8 @@
         if (Number.isFinite(me.cp)) myCp = me.cp;
         myPlace = me.place || myPlace;
         const newGb = me.gb || null;
-        if (newGb && !gb) shake = Math.max(shake, 0.5);
+        if (newGb && !gb) { shake = Math.max(shake, 0.5); sfx("grab"); }
+        if (!newGb && gb) sfx("release");
         gb = newGb;
         struggles = gb ? (me.st || 0) : 0;
         const newGr = me.gr || null;
@@ -1998,11 +2046,13 @@
       stun = STUN_S;
       shake = Math.max(shake, 0.3);
       hud.toast((by ? String(by).toUpperCase() + " " : "") + "BUMPED YOU!", "#ff4fa0");
+      sfx("knock");
     });
 
     s.sock("eye-cp", ({ cp, name }) => {
       if (Number.isFinite(cp)) myCp = cp;
       hud.banner(name || "CHECKPOINT!", "#3fe0ff", 1600);
+      sfx("checkpoint");
     });
 
     s.sock("eye-win", ({ uid, name }) => onWin(uid, name));
@@ -2016,6 +2066,9 @@
       try { art.flash("win"); } catch (e) { /* ignore */ }
       if (hostages) { try { hostages.free(); } catch (e) { /* ignore */ } }
       hostageSolids = [];
+      sfx("crack");
+      sfx("cheer");
+      if (uid === myUid) sfx("win");
       if (uid === myUid) { hud.banner("YOU FREED THE HOSTAGES!", "#ffd23f", 5000); stats.crowned = true; }
       else hud.banner(String(name).toUpperCase() + " FREED THE HOSTAGES!", "#ffd23f", 5000);
     }
@@ -2025,6 +2078,9 @@
       setGrab(false);
       if (document.pointerLockElement) document.exitPointerLock();
       hud.endScreen(table, myUid, endsIn);
+      const mine = (table || []).find((r) => r.uid === myUid);
+      if (mine && !winner) sfx(mine.place === 1 ? "win" : "lose");
+      else sfx("pop");
     });
 
     // The team was picked in the lobby; it goes with every ready.
@@ -2092,6 +2148,7 @@
       stats.falls++;
       if (myBean) myBean.group.visible = false;
       s.socket.emit("eye-input", { t: "fell" });
+      sfx("out");
       hud.fade(true);
       hud.toast(["SPLOSH!", "INTO THE LAVA!", "OOPS!", "WHOOPS!"][stats.falls % 4], "#ff6a1a");
     }
@@ -2135,6 +2192,7 @@
         for (let i = 0; i < SUB_STEPS; i++) stepPlayer(sub);
         tryGrab();
       }
+      updateSound(rt);
       stun = Math.max(0, stun - dt);
       burn = Math.max(0, burn - dt * 0.8);
       shake = Math.max(0, shake - dt * 1.8);
@@ -2516,7 +2574,7 @@
       "background:rgba(20,6,24,0.72);border:2px solid rgba(255,246,251,0.35);font-size:0.82rem;font-weight:800;color:#ffe3ef;" +
       "white-space:nowrap;opacity:0;transition:opacity 500ms;",
       '<b style="color:#ffd23f">WASD</b> run &nbsp;·&nbsp; <b style="color:#ffd23f">← →</b> camera &nbsp;·&nbsp; <b style="color:#ffd23f">Space</b> jump &nbsp;·&nbsp; ' +
-      '<b style="color:#ffd23f">Shift</b> dive &nbsp;·&nbsp; <b style="color:#ffd23f">E</b> grab &nbsp;·&nbsp; <b style="color:#ffd23f">Esc</b> help');
+      '<b style="color:#ffd23f">Shift</b> dive &nbsp;·&nbsp; <b style="color:#ffd23f">E</b> grab &nbsp;·&nbsp; <b style="color:#ffd23f">M</b> sound &nbsp;·&nbsp; <b style="color:#ffd23f">Esc</b> help');
     const IT = introTime(course);
     // Title cards: few words, solid colours on a dark panel so they read over
     // any shot. The two that teach the game (hostages, the Eye) stay longest.
@@ -2707,6 +2765,8 @@
           centre.style.animation = "none";
           void centre.offsetWidth;
           if (count) centre.style.animation = "eyeCount 750ms cubic-bezier(.2,.9,.3,1) both";
+          if (count === "GO!") sfx("go");
+          else if (count) sfx("tick");
           lastCount = count;
         }
 
