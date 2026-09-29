@@ -31,7 +31,7 @@ socket.on("game-started", () => {
   window.location.href = "game.html";
 });
 
-const GAME_NAMES = { snake: "🐍 Snake", hungry: "🍗 Hungry Lasse", shooter: "🔫 Shooter", eye: "👁️ Eye of Ark" };
+const GAME_NAMES = { snake: "🐍 Snake", hungry: "🍗 Hungry Lasse", shooter: "🔫 Shooter", eye: "👁️ Eye of Ark", showdown: "🌀 Jump Showdown", hexagone: "⬡ Hex-A-Gone", blockparty: "🧱 Block Party" };
 
 let gameSettings = {};
 
@@ -40,7 +40,7 @@ function renderGameSettings(game) {
   container.innerHTML = "";
   gameSettings = {};
 
-  if (game === "snake" || game === "eye") {
+  if (["snake", "eye", "showdown", "hexagone", "blockparty"].includes(game)) {
     gameSettings.rounds = 1;
     container.innerHTML = `
       <div class="round-picker">
@@ -180,8 +180,9 @@ function savedTeam() {
 function renderTeamPicker(game) {
   const box = document.getElementById("team-picker");
   if (!box) return;
-  box.classList.toggle("hidden", game !== "eye");
-  if (game !== "eye" || box.innerHTML !== "") return;
+  const picks = ["eye", "showdown", "hexagone", "blockparty"].includes(game);
+  box.classList.toggle("hidden", !picks);
+  if (!picks || box.innerHTML !== "") return;
 
   box.innerHTML = `
     <p class="label" style="margin:0.9rem 0 0.4rem;">Choose your soldier</p>

@@ -8,12 +8,18 @@ const SnakeGame = require("./games/snake");
 const HungryGame = require("./games/hungry");
 const ShooterGame = require("./games/shooter");
 const EyeGame = require("./games/eye");
+const ShowdownGame = require("./games/showdown");
+const HexagoneGame = require("./games/hexagone");
+const BlockpartyGame = require("./games/blockparty");
 
 const GAME_REGISTRY = {
   snake: { Game: SnakeGame, maxPlayers: 8 },
   hungry: { Game: HungryGame, maxPlayers: 8 },
   shooter: { Game: ShooterGame, maxPlayers: 8 },
   eye: { Game: EyeGame, maxPlayers: 8 },
+  showdown: { Game: ShowdownGame, maxPlayers: 8 },
+  hexagone: { Game: HexagoneGame, maxPlayers: 8 },
+  blockparty: { Game: BlockpartyGame, maxPlayers: 8 },
 };
 
 const app = express();
@@ -201,6 +207,24 @@ io.on("connection", (socket) => {
   socket.on("eye-input", (data) => {
     for (const [, game] of Object.entries(activeGames)) {
       if (game instanceof EyeGame) game.setInput(socket.id, data);
+    }
+  });
+
+  socket.on("showdown-input", (data) => {
+    for (const [, game] of Object.entries(activeGames)) {
+      if (game instanceof ShowdownGame) game.setInput(socket.id, data);
+    }
+  });
+
+  socket.on("hexagone-input", (data) => {
+    for (const [, game] of Object.entries(activeGames)) {
+      if (game instanceof HexagoneGame) game.setInput(socket.id, data);
+    }
+  });
+
+  socket.on("blockparty-input", (data) => {
+    for (const [, game] of Object.entries(activeGames)) {
+      if (game instanceof BlockpartyGame) game.setInput(socket.id, data);
     }
   });
 
