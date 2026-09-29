@@ -211,9 +211,8 @@
         segPrev: segMeshes.map(() => ({ warn: false, alive: true })),
         flipPrev: [false, false],
         near: [99, 99], whooshAt: [0, 0],
-        whirr: null, warnSoon: false,
+        warnSoon: false,
       });
-      ctx.session.cleanups.push(() => { for (const l of ctx.state.whirr || []) { try { l.stop(); } catch (e) { /* ignore */ } } });
     },
 
     // the floor: flat at y = 0 wherever a wedge still is
@@ -315,10 +314,6 @@
       const me = ctx.player.pos;
       const ear = ctx.player.out ? ctx.camera.position : { x: me.x, y: me.y + 1, z: me.z };
       const near = { x: 0, y: 0, z: 0 };
-      const A = window.PARTY_AUDIO;
-      if (!S.whirr && A && typeof A.loop === "function" && ctx.phase !== "loading") {
-        try { S.whirr = [A.loop("whirr", { volume: 0 }), A.loop("whirr", { volume: 0 })]; } catch (e) { S.whirr = []; }
-      }
       RULES.BARS.forEach((cfg, b) => {
         const pose = r.barPose(b, rt);
         S.bars[b].pivot.rotation.y = -pose.angle;
@@ -327,15 +322,8 @@
         if (pose.flipSoon && !S.flipPrev[b] && live) ctx.sfx("warn", { volume: 0.35, pitch: b === 0 ? 1.15 : 0.85 });
         S.flipPrev[b] = pose.flipSoon;
 
-        // how close the bar is to you: the whirr swells as it comes round
-        const d = segDist(pose.a, pose.b, ear, near);
-        const w = S.whirr && S.whirr[b];
-        if (w) {
-          const spin = Math.abs(pose.omega);
-          const vol = ctx.phase === "over" ? 0 : Math.min(1, spin / 0.5) * (0.06 + 0.3 * Math.max(0, 1 - d / 16));
-          try { w.set({ volume: vol, pitch: 0.6 + spin * 0.45 + b * 0.25 }); } catch (e) { /* ignore */ }
-        }
         // a near miss: it whooshes past
+        const d = segDist(pose.a, pose.b, ear, near);
         if (live && !ctx.player.out && d < 2.2 && S.near[b] >= 2.2 && d > 0.45 + pose.r + 0.05 &&
             Math.abs(pose.omega) > 0.4 && t - S.whooshAt[b] > 0.8) {
           S.whooshAt[b] = t;
