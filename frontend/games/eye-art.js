@@ -1457,6 +1457,10 @@
     let power = 0.5;
     let flare = 0;
     let lightning = 0, nextLightning = 4 + Math.random() * 6;
+    // Every flash on screen gets its thunder (from the shared sound kit, if loaded).
+    const thunder = (opts) => {
+      try { if (window.PARTY_AUDIO) window.PARTY_AUDIO.play("thunder", opts); } catch (e) { /* silent */ }
+    };
     const toEye = new THREE.Vector3();
 
     function update(dt, rt, gaze, cameraPos) {
@@ -1474,6 +1478,8 @@
       nextLightning -= dt;
       if (nextLightning <= 0) {
         lightning = 1;
+        // a distant strike: the thunder rolls in a moment later, softer
+        thunder({ volume: 0.45 + Math.random() * 0.3, delay: 0.4 + Math.random() * 1.1 });
         nextLightning = 5 + Math.random() * 10;
       }
       lightning = Math.max(0, lightning - dt * 3.2);
@@ -1536,7 +1542,7 @@
     function flashFn(kind) {
       if (kind === "win") flare = 1.4;
       if (kind === "eye") flare = Math.max(flare, 1.1);          // intro: the Eye flares at the camera
-      if (kind === "lightning") { lightning = 1; nextLightning = 4 + Math.random() * 5; }
+      if (kind === "lightning") { lightning = 1; nextLightning = 4 + Math.random() * 5; thunder({ volume: 1 }); }
     }
 
     function dispose() {

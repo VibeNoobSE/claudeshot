@@ -10,7 +10,8 @@
 //                                   allow that after a user gesture, so call it
 //                                   on every keydown/click; it is cheap.
 //   PARTY_AUDIO.play(name, opts)    one-shot. opts: { volume 0..1, pitch (rate
-//                                   multiplier), pan -1..1, at {x,y,z} }. With
+//                                   multiplier), pan -1..1, at {x,y,z}, delay
+//                                   seconds }. With
 //                                   `at`, volume and pan come from the distance
 //                                   and direction to the listener.
 //   PARTY_AUDIO.setListener(pos, yaw)  camera position and yaw (three.js rotation.y)
@@ -313,6 +314,37 @@
       tone(out, t + 0.09, { f0: NOTE(103) * r, dur: 0.3, attack: 0.004, peak: 0.04 });
       return 0.8;
     },
+    thunder(out, t, r) {                            // a crack overhead, then a long rolling rumble
+      // the crack: a bright split-second burst, then a lower boom under it
+      noise(out, t, { dur: 0.22, attack: 0.002, filter: "highpass", f0: 1800 * r, peak: 0.34 });
+      noise(out, t + 0.02, { dur: 0.7, attack: 0.01, filter: "lowpass", f0: 900 * r, f1: 220 * r, peak: 0.42 });
+      // the roll: looping brown noise through a low filter that sinks as it
+      // fades, with a few irregular swells so it rumbles rather than hisses
+      const dur = 3.6 + Math.random() * 1.2;
+      const src = ctx.createBufferSource();
+      src.buffer = brownBuf;
+      src.loop = true;
+      const lp = ctx.createBiquadFilter();
+      lp.type = "lowpass";
+      lp.frequency.setValueAtTime(420 * r, t);
+      lp.frequency.exponentialRampToValueAtTime(110 * r, t + dur);
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.linearRampToValueAtTime(0.55, t + 0.12);
+      let at = t + 0.12, level = 0.55;
+      while (at < t + dur - 0.5) {
+        const step = 0.25 + Math.random() * 0.45;
+        level *= 0.72 + Math.random() * 0.34;          // each swell a little weaker, overall
+        g.gain.linearRampToValueAtTime(Math.max(0.03, level * (0.55 + Math.random() * 0.45)), at + step * 0.5);
+        g.gain.linearRampToValueAtTime(Math.max(0.03, level), at + step);
+        at += step;
+      }
+      g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+      src.connect(lp).connect(g).connect(out);
+      src.start(t, Math.random() * 1.5);
+      src.stop(t + dur + 0.05);
+      return dur;
+    },
     zap(out, t, r) {                                // the Eye's beam: a hot crackling sizzle
       const bp = ctx.createBiquadFilter();
       bp.type = "bandpass";
@@ -372,7 +404,7 @@
     const vol = (o.volume === undefined ? 1 : o.volume) * sp.vol;
     if (vol < 0.02) return;                         // too far away to matter
     try {
-      const t = ctx.currentTime + 0.005;
+      const t = ctx.currentTime + 0.005 + Math.max(0, o.delay || 0);   // delay: seconds, e.g. distant thunder
       const g = ctx.createGain();
       g.gain.value = Math.min(1, vol);
       const pan = o.pan !== undefined ? o.pan : sp.pan;
@@ -383,7 +415,7 @@
       } else g.connect(master);
       const rate = (o.pitch || 1) * (1 + (Math.random() * 2 - 1) * JITTER);
       const len = voice(g, t, rate);
-      setTimeout(() => { try { g.disconnect(); } catch (e) { /* already gone */ } }, (len + 0.3) * 1000);
+      setTimeout(() => { try { g.disconnect(); } catch (e) { /* already gone */ } }, (len + 0.3 + Math.max(0, o.delay || 0)) * 1000);
     } catch (e) { /* a sound must never break a game */ }
   }
 
@@ -517,6 +549,7 @@
     setMuted,
     toggleMute() { setMuted(!muted); return muted; },
     get muted() { return muted; },
+    get running() { return !!ctx && ctx.state === "running"; },   // false until the browser allows sound
     names: Object.keys(VOICES),
     loopNames: Object.keys(LOOPS),
     measurePeak,

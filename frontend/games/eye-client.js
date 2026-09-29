@@ -149,6 +149,25 @@
     document.head.appendChild(fontLink);
     const loader = buildLoader(course);
     s.cleanups.push(() => loader.dispose());
+
+    // Browsers only allow sound after a key press or click on this page. Try
+    // straight away, and if it's still blocked, ask for a key while the tower
+    // loads, so the intro's thunder is heard.
+    const soundHint = document.createElement("div");
+    soundHint.style.cssText = "position:absolute;bottom:6%;left:0;right:0;text-align:center;font-weight:800;" +
+      "font-size:0.95rem;color:#ffd7c2;opacity:0;transition:opacity 400ms;";
+    soundHint.textContent = "\ud83d\udd0a Press any key to turn on the sound";
+    loader.el.appendChild(soundHint);
+    const wakeAudio = () => {
+      try { if (window.PARTY_AUDIO) window.PARTY_AUDIO.unlock(); } catch (e) { /* ignore */ }
+      soundHint.style.opacity = "0";
+    };
+    wakeAudio();
+    s.on(document, "keydown", wakeAudio);
+    s.on(document, "pointerdown", wakeAudio);
+    s.timeouts.push(setTimeout(() => {
+      if (window.PARTY_AUDIO && !window.PARTY_AUDIO.running && !window.PARTY_AUDIO.muted) soundHint.style.opacity = "0.9";
+    }, 400));
     {
       const area0 = document.getElementById("game-area");
       if (area0) { area0.innerHTML = ""; area0.appendChild(loader.el); }
@@ -798,7 +817,6 @@
     const collider = new Capsule(new THREE.Vector3(0, R, 0), new THREE.Vector3(0, H - R, 0), R);
     const velocity = new THREE.Vector3();
     let onFloor = false;
-    let lastStepAt = 0;
     let lastGroundAt = 0;
     let jumpQueuedAt = -1e9;
     let faceYaw = 0;
@@ -1430,7 +1448,6 @@
       resolveStatic();
       if (!onFloor && wasOnFloor && velocity.y <= 0.5) snapDown();
       if (onFloor && !wasOnFloor && vyBefore < -3) sfx("land", { volume: Math.min(1, -vyBefore / 16) });
-      if (onFloor && Math.hypot(velocity.x, velocity.z) > 2.5 && now - lastStepAt > 290) { lastStepAt = now; sfx("step"); }
       if (!DEBUG.noHazards) collideHazards();
       collideBeans();
       collideCages();
@@ -1547,13 +1564,21 @@
       const y = 4 + u * 50;
       return polar(CRANE_PHI - 0.55 + u * 0.7, course.towerRadiusAt(Math.min(y, course.SUMMIT.y)) + 7.5 + u * 8, y);
     }));
-    // 3. rise over the Eye and drop onto the caged hostages, seen from the bridge
+    // 3. circle round the top of the tower at a respectful distance - the Eye
+    //    always turns to face the camera, so flying over or through it looked
+    //    like it flipped - then glide in along the bridge onto the crown and
+    //    the caged hostages
+    const CRANE_END_R = course.towerRadiusAt(course.SUMMIT.y) + 15.5;   // where the crane shot leaves off
     const summitPos = spline([
-      polar(CRANE_PHI + 0.15, 23.5, 54), polar(CRANE_PHI + 0.05, 15, 69), V3(0, 81, 0).add(polar(B_PHI, 4, 0)),
-      polar(B_PHI, 10, 56), polar(B_PHI, 11.8, 44.4),
+      polar(CRANE_PHI + 0.15, CRANE_END_R, 54),
+      polar(CRANE_PHI + 0.15 + Math.PI * 0.3, 25, 52.5),
+      polar(CRANE_PHI + 0.15 + Math.PI * 0.62, 23, 50),
+      polar(B_PHI + 0.12, 17, 47),
+      polar(B_PHI, 11.8, 44.4),
     ]);
     const cageLook = V3(0, course.CROWN.pos[1] - 0.9, 0);   // the crown, a cage either side
-    const summitLook = spline([EYE.clone(), V3(0, 62, 0), V3(0, 50, 0).lerp(cageLook, 0.5), cageLook.clone(), cageLook.clone()]);
+    const DECK_AND_EYE = V3(0, (course.EYE_POS[1] + course.SUMMIT.y) / 2, 0);
+    const summitLook = spline([EYE.clone(), DECK_AND_EYE.clone(), DECK_AND_EYE.clone(), cageLook.clone(), cageLook.clone()]);
     // 4. the Eye demo, at checkpoint 1's cover. Two stand-in soldiers: one out
     //    in the open, one under the roof. The beam sweeps past, blasts the
     //    exposed one off into the lava and can't reach the one under cover.
@@ -1702,8 +1727,8 @@
 
     // one-shot moments on the intro timeline (lightning, cuts, the Eye flaring)
     const INTRO_EVENTS = [
-      { t: IT(-19000), fn: () => { art.flash?.("lightning"); introShake = 0.7; hud.cut("#fff1d6"); sfx("thud", { pitch: 0.5 }); sfx("crack", { volume: 0.6, pitch: 0.6 }); } },
-      { t: IT(-16400), fn: () => { art.flash?.("lightning"); hud.cut("#ffffff"); sfx("thud", { pitch: 0.55, volume: 0.8 }); } },
+      { t: IT(-19000), fn: () => { art.flash?.("lightning"); introShake = 0.7; hud.cut("#fff1d6"); } },   // the art plays the thunder with its flash
+      { t: IT(-16400), fn: () => { art.flash?.("lightning"); hud.cut("#ffffff"); } },
       { t: IT(-13700), fn: () => { art.flash?.("eye"); introShake = 0.35; sfx("zap", { volume: 0.6, pitch: 0.7 }); } },
       { t: IT(-8200), fn: () => { hud.cut("#ffd7a8"); } },
       { t: DEMO.hitAt, fn: () => { art.flash?.("eye"); introShake = 0.5; hud.cut("#ff6a3d"); sfx("zap"); sfx("out", { volume: 0.7 }); } },
