@@ -52,6 +52,9 @@ function cleanupAllGames() {
   if (typeof cleanupHungryClient === "function") cleanupHungryClient();
   if (typeof cleanupShooterClient === "function") cleanupShooterClient();
   if (typeof cleanupEyeClient === "function") cleanupEyeClient();
+  if (typeof cleanupShowdownClient === "function") cleanupShowdownClient();
+  if (typeof cleanupHexagoneClient === "function") cleanupHexagoneClient();
+  if (typeof cleanupBlockpartyClient === "function") cleanupBlockpartyClient();
 }
 
 function initGame(room) {
@@ -63,6 +66,9 @@ function initGame(room) {
   if (room.game === "hungry") initHungryClient(socket, socket.id, room);
   if (room.game === "shooter") initShooterClient(socket, socket.id, room);
   if (room.game === "eye") initEyeClient(socket, socket.id, room);
+  if (room.game === "showdown") initShowdownClient(socket, socket.id, room);
+  if (room.game === "hexagone") initHexagoneClient(socket, socket.id, room);
+  if (room.game === "blockparty") initBlockpartyClient(socket, socket.id, room);
 }
 
 let roundOverlayTimer = null;
